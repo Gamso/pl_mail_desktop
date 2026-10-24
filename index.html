@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>plMail Desktop</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main>
+      <!-- Client settings, also the welcome page on first launch -->
+      <section id="view-settings" hidden>
+        <header class="hero">
+          <h1 id="settings-title"></h1>
+          <p id="settings-lead" class="lead"></p>
+        </header>
+
+        <div id="status-chip" class="chip" hidden><span class="dot"></span><span id="status"></span></div>
+
+        <form id="form" autocomplete="off">
+          <div class="field">
+            <label for="server_url" data-i18n="field.server"></label>
+            <input id="server_url" type="url" placeholder="https://mail.example.com" required spellcheck="false" />
+          </div>
+
+          <div class="field">
+            <label for="app_password" data-i18n="field.password"></label>
+            <input id="app_password" type="password" placeholder="plmail_…" spellcheck="false" />
+            <p class="hint">
+              <span data-i18n="hint.before"></span><strong data-i18n="hint.path"></strong><span data-i18n="hint.after"></span>
+            </p>
+          </div>
+
+          <div class="field">
+            <label for="language" data-i18n="field.language"></label>
+            <select id="language"></select>
+          </div>
+
+          <details id="advanced">
+            <summary data-i18n="advanced"></summary>
+            <div class="field inline">
+              <label for="interval_secs" data-i18n="field.interval"></label>
+              <span class="suffix"><input id="interval_secs" type="number" min="15" step="5" value="60" /> <span data-i18n="unit.seconds"></span></span>
+            </div>
+            <label class="check"><input id="accept_invalid_certs" type="checkbox" /> <span data-i18n="field.insecure"></span></label>
+            <label class="check"><input id="start_with_windows" type="checkbox" checked /> <span data-i18n="field.autostart"></span></label>
+          </details>
+
+          <p id="error" class="error" role="alert"></p>
+          <div class="actions">
+            <button type="submit" class="primary" id="save"></button>
+            <button type="button" class="ghost" id="test" data-i18n="btn.test"></button>
+          </div>
+        </form>
+      </section>
+
+      <!-- About -->
+      <section id="view-about" hidden>
+        <header class="hero">
+          <img src="/src/assets/logo.png" alt="" class="logo big" />
+          <h1 id="about-name">plMail Desktop</h1>
+          <p class="lead"><span data-i18n="about.version"></span> <span id="about-version"></span></p>
+        </header>
+        <p class="text" data-i18n="about.text"></p>
+        <p class="text muted" data-i18n="about.muted"></p>
+        <div class="actions">
+          <button type="button" class="primary" id="about-link" data-i18n="about.link"></button>
+          <button type="button" class="ghost" id="about-close" data-i18n="about.close"></button>
+        </div>
+      </section>
+
+      <!-- Server unreachable -->
+      <section id="view-unreachable" hidden>
+        <header class="hero">
+          <div class="alert-icon" aria-hidden="true">!</div>
+          <h1 data-i18n="unreachable.title"></h1>
+          <p class="lead" id="unreachable-lead"></p>
+        </header>
+        <p id="unreachable-detail" class="detail"></p>
+        <ul class="tips">
+          <li data-i18n="unreachable.tip1"></li>
+          <li data-i18n="unreachable.tip2"></li>
+          <li data-i18n="unreachable.tip3"></li>
+        </ul>
+        <div class="actions">
+          <button type="button" class="primary" id="retry" data-i18n="unreachable.retry"></button>
+          <button type="button" class="ghost" id="to-settings" data-i18n="unreachable.settings"></button>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
