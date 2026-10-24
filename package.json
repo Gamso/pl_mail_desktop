@@ -18,7 +18,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "vite": "^8.0.16",
-    "typescript": "~6.0.3"
+    "typescript": "~7.0.2"
   },
   "description": "Windows desktop client for pl_mail",
   "repository": {
