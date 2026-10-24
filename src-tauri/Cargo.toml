@@ -5,6 +5,7 @@ description = "Windows desktop client for pl_mail"
 authors = ["Gamso"]
 repository = "https://github.com/Gamso/pl_mail_desktop"
 edition = "2024"
+license = "AGPL-3.0-or-later"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
