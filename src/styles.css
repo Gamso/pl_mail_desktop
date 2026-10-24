@@ -1,0 +1,98 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f3ee;
+  --surface: #ffffff;
+  --ink: #1f1a17;
+  --ink-soft: #6b625c;
+  --line: #e4ddd4;
+  --field: #ffffff;
+  --accent: #b3261e;
+  --accent-ink: #ffffff;
+  --danger: #c0392b;
+  --ok: #2e9e5b;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1817;
+    --surface: #26211f;
+    --ink: #f3ece6;
+    --ink-soft: #a89d95;
+    --line: #3a3330;
+    --field: #1b1817;
+    --accent: #d8453b;
+    --danger: #ff6b5e;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+main { padding: 28px 32px 32px; min-height: 100vh; }
+[hidden] { display: none !important; }
+
+.hero { text-align: center; margin-bottom: 20px; }
+.logo { width: 64px; height: 64px; }
+.logo.big { width: 96px; height: 96px; }
+h1 { font-size: 20px; margin: 10px 0 4px; font-weight: 650; }
+.lead { margin: 0; color: var(--ink-soft); line-height: 1.45; }
+
+.chip {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  margin: 0 auto 18px; padding: 6px 12px; width: fit-content; max-width: 100%;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  color: var(--ink-soft); font-size: 12.5px;
+}
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-soft); flex: none; }
+.chip.ok .dot { background: var(--ok); }
+.chip.bad .dot { background: var(--danger); }
+
+form { display: flex; flex-direction: column; gap: 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field.inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+label { font-weight: 600; }
+input:not([type="checkbox"]), select {
+  width: 100%; padding: 10px 12px; font: inherit; color: var(--ink);
+  background: var(--field); border: 1px solid var(--line); border-radius: 8px; outline: none;
+}
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.hint { margin: 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.45; }
+
+details { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface); }
+summary { cursor: pointer; font-weight: 600; }
+details[open] summary { margin-bottom: 12px; }
+details .field.inline label { font-weight: 400; }
+.suffix { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.suffix input { width: 76px; text-align: right; padding: 6px 8px; }
+label.check { display: flex; align-items: center; gap: 8px; font-weight: 400; margin-top: 10px; }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+
+.error { min-height: 1.2em; margin: 0; color: var(--danger); line-height: 1.4; }
+.actions { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+button {
+  font: inherit; font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+button:hover { border-color: var(--ink-soft); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.primary:hover { filter: brightness(1.08); }
+button.ghost { background: transparent; }
+button:disabled { opacity: .6; cursor: progress; }
+
+.text { line-height: 1.55; margin: 0 0 12px; }
+.muted { color: var(--ink-soft); font-size: 13px; }
+
+.alert-icon {
+  width: 56px; height: 56px; margin: 0 auto; border-radius: 50%;
+  display: grid; place-items: center; font-size: 30px; font-weight: 700;
+  background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger);
+}
+.detail {
+  margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; line-height: 1.45;
+  background: var(--surface); border: 1px solid var(--line); color: var(--danger);
+}
+.tips { margin: 0 0 18px; padding-left: 20px; color: var(--ink-soft); line-height: 1.6; }
+
+button.link { padding: 0; border: 0; background: none; color: var(--accent); font-weight: 600; text-decoration: underline; }
+button.link:hover { filter: brightness(1.15); }

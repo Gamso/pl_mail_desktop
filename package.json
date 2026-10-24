@@ -1,0 +1,28 @@
+{
+  "name": "pl-mail-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "typescript": "~7.0.2",
+    "vite": "^8.0.16"
+  },
+  "description": "Windows desktop client for pl_mail",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gamso/pl_mail_desktop.git"
+  }
+}

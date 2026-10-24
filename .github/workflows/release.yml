@@ -1,0 +1,48 @@
+name: Release
+
+# Push a tag such as v0.1.0 (matching the version in tauri.conf.json) to build the Windows
+# installer and attach it to a draft GitHub release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Run the tests before building anything to ship
+        working-directory: src-tauri
+        run: |
+          npm --prefix .. run build
+          cargo test
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: plMail Desktop ${{ github.ref_name }}
+          releaseBody: |
+            Windows installer for plMail Desktop. It installs for the current user, without
+            administrator rights. See the README for setup.
+          releaseDraft: true
+          prerelease: false
+          args: --bundles nsis
