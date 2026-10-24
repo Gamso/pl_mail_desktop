@@ -8,6 +8,9 @@ mod i18n_tests;
 mod jmap;
 #[cfg(test)]
 mod jmap_tests;
+mod links;
+#[cfg(test)]
+mod links_tests;
 mod mailto;
 #[cfg(test)]
 mod mailto_tests;
@@ -16,6 +19,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
+use tauri::webview::NewWindowResponse;
 use tauri::{
     AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -33,6 +37,21 @@ const APP_NAME: &str = "plMail Desktop";
 const KEYRING_SERVICE: &str = "plmail-client";
 const KEYRING_USER: &str = "app-password";
 const MIN_INTERVAL: u64 = 15;
+
+/// Injected in every frame of the mail window, the mail body's included.
+///
+/// WebView2 reports `window.open()` to the application but not a click on a `target="_blank"`
+/// link, which pl_mail puts on every link of a mail: those clicks would do nothing at all. Turning
+/// the click into the equivalent `window.open()` sends it through `on_new_window`.
+const OPEN_LINKS_SCRIPT: &str = r#"
+addEventListener('click', function (event) {
+  if (event.defaultPrevented || event.button !== 0) return;
+  var link = event.target instanceof Element ? event.target.closest('a[href]') : null;
+  if (!link || (link.getAttribute('target') || '').toLowerCase() !== '_blank') return;
+  event.preventDefault();
+  window.open(link.href, '_blank');
+}, true);
+"#;
 
 /// Zoom of the mail window in percent, shared by the menu entries.
 static ZOOM: AtomicI32 = AtomicI32::new(100);
@@ -457,6 +476,25 @@ fn retry_open(app: AppHandle) {
     open_mail(&app);
 }
 
+/// Carries out what `links::classify` decided for a link that asked for a window of its own.
+fn follow_link(app: &AppHandle, server: &tauri::Url, target: &tauri::Url) {
+    match links::classify(server, target) {
+        links::LinkAction::OpenInBrowser(url) => {
+            let _ = app.opener().open_url(url.as_str(), None::<&str>);
+        }
+        links::LinkAction::OpenHere(url) => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(w) = app.get_webview_window("web") {
+                    let _ = w.navigate(url);
+                }
+            });
+        }
+        links::LinkAction::Compose(path) => open_mail_at(app, Some(path)),
+        links::LinkAction::Ignore => {}
+    }
+}
+
 /// What launching the app again should show: the mail, or the setup if there is none yet.
 fn show_main(app: &AppHandle) {
     if configured(app) {
@@ -493,6 +531,8 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
         .parse::<tauri::Url>()
         .map_err(|_| tr(ui, "err.no_server").to_string())?;
     // Where to land: the page asked for, on the configured server.
+    let server = url.clone();
+    let links_app = app.clone();
     let landing = path.as_deref().and_then(|p| {
         format!("{}{p}", settings.server_url)
             .parse::<tauri::Url>()
@@ -528,6 +568,12 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
             .title(APP_NAME)
             .inner_size(1280.0, 820.0)
             .menu(menu)
+            .initialization_script_for_all_frames(OPEN_LINKS_SCRIPT)
+            // Links in a mail ask for a window of their own; a bare window would ignore them.
+            .on_new_window(move |target, _| {
+                follow_link(&links_app, &server, &target);
+                NewWindowResponse::Deny
+            })
             .additional_browser_args(&args)
             // WebView2 refuses two windows on one data folder with different launch
             // options; the settings window has its own, so this one gets a folder too.

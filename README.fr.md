@@ -41,6 +41,8 @@ Windows, icône dans la barre système.
   paramètres*, au lieu de la page d'erreur du navigateur.
 - **Quatre langues**, celles de plMail : English, Deutsch, Français et Pirate English. Par défaut
   l'application suit la langue de Windows ; elle se change dans les paramètres.
+- **Liens dans les mails** : ouverts dans votre navigateur par défaut (les liens vers votre propre
+  serveur pl_mail restent dans la fenêtre, et les liens `mailto:` ouvrent un nouveau message).
 - **Fenêtres bloquantes** : paramètres, à propos et erreur verrouillent la fenêtre mail tant qu'elles
   sont ouvertes.
 - **Liens `mailto:`** (optionnel) : une fois activé dans les paramètres, l'application est proposée
@@ -183,4 +185,4 @@ Pour changer le nom de l'application : `APP_NAME` dans `src-tauri/src/lib.rs` et
 - Construit avec [Tauri](https://tauri.app/) 2.
 - Le logo est celui de [pl_mail](https://github.com/karatektus/pl_mail), distribué sous licence
   AGPL-3.0.
-- Licence de ce client : à définir.
+- Licence : [AGPL-3.0-or-later](LICENSE), la même que pl_mail.

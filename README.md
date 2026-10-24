@@ -36,6 +36,8 @@ poorly: Windows notifications, an unread count on the icon, start with Windows, 
   the browser's error page.
 - **Four languages**, the same as plMail: English, Deutsch, Français and Pirate English. The
   application follows the Windows language by default; change it in the settings.
+- **Links in mails** open in your default browser (links to your own pl_mail server stay in the
+  window, and `mailto:` links open a new message).
 - **Modal dialogs**: settings, about and error windows lock the mail window while they are open.
 - **`mailto:` links** (optional): once enabled in the settings, the application is offered to
   Windows as a mail app. Choose it once in *Settings → Apps → Default apps*, and a click on a
@@ -174,4 +176,4 @@ To rename the application: `APP_NAME` in `src-tauri/src/lib.rs` and `productName
 
 - Built with [Tauri](https://tauri.app/) 2.
 - The logo is pl_mail's, distributed under the AGPL-3.0 license.
-- License of this client: to be decided.
+- License: [AGPL-3.0-or-later](LICENSE), the same as pl_mail.
