@@ -3,7 +3,6 @@ use crate::i18n::{Lang, fill, tr};
 /// Every key the code asks for. Keep in step with the `match` in `tr`.
 const KEYS: &[&str] = &[
     "tray.open",
-    "tray.check",
     "tray.settings",
     "tray.quit",
     "menu.tools",

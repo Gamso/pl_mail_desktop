@@ -137,18 +137,56 @@ fn show_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         // A dialog over the mail: the mail stays out of reach until it is closed.
         set_mail_enabled(app, false);
+        center_on_mail(app, &w);
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
 }
 
-/// Closes the settings/about/error window and gives the mail window back its input.
+/// Centres a dialog over the mail window, or on the screen when there is no mail window showing.
+fn center_on_mail(app: &AppHandle, dialog: &tauri::WebviewWindow) {
+    let mail = app
+        .get_webview_window("web")
+        .filter(|m| m.is_visible().unwrap_or(false) && !m.is_minimized().unwrap_or(false));
+    let placed = mail.and_then(|m| {
+        let (pos, size) = (m.outer_position().ok()?, m.outer_size().ok()?);
+        let own = dialog.outer_size().ok()?;
+        let mut x = pos.x + (size.width as i32 - own.width as i32) / 2;
+        let mut y = pos.y + (size.height as i32 - own.height as i32) / 2;
+        // Stay on the screen the mail window is on, even when it is half off it.
+        if let Ok(Some(screen)) = m.current_monitor() {
+            let (origin, extent) = (screen.position(), screen.size());
+            x = x.clamp(
+                origin.x,
+                (origin.x + extent.width as i32 - own.width as i32).max(origin.x),
+            );
+            y = y.clamp(
+                origin.y,
+                (origin.y + extent.height as i32 - own.height as i32).max(origin.y),
+            );
+        }
+        dialog.set_position(tauri::PhysicalPosition::new(x, y)).ok()
+    });
+    if placed.is_none() {
+        let _ = dialog.center();
+    }
+}
+
+/// Closes the settings/about/error window and hands the mail window its input and the focus back.
 fn hide_main(app: &AppHandle) {
+    // Re-enable the mail window before hiding the dialog: Windows hands the focus to the next
+    // window it can activate, and a disabled one is skipped in favour of some other application.
+    set_mail_enabled(app, true);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
     }
-    set_mail_enabled(app, true);
+    if let Some(mail) = app.get_webview_window("web")
+        && mail.is_visible().unwrap_or(false)
+        && !mail.is_minimized().unwrap_or(false)
+    {
+        let _ = mail.set_focus();
+    }
 }
 
 fn set_mail_enabled(app: &AppHandle, enabled: bool) {
@@ -780,7 +818,6 @@ fn tray_menu(app: &AppHandle, ui: Lang) -> tauri::Result<Menu<tauri::Wry>> {
         app,
         &[
             &item("open", "tray.open")?,
-            &item("check", "tray.check")?,
             &item("prefs", "tray.settings")?,
             &item("quit", "tray.quit")?,
         ],
@@ -867,7 +904,6 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main(app),
-                    "check" => sync_now(app),
                     "prefs" => show_view(app, "settings", ""),
                     "quit" => app.exit(0),
                     _ => {}

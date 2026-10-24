@@ -68,15 +68,6 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
                 "Open the mail chest",
             ],
         ),
-        "tray.check" => pick(
-            lang,
-            [
-                "Sync now",
-                "Jetzt synchronisieren",
-                "Synchroniser maintenant",
-                "Scan the horizon",
-            ],
-        ),
         "tray.settings" => pick(
             lang,
             [

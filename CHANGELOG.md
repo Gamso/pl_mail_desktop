@@ -4,6 +4,19 @@ All notable changes to plMail Desktop are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The unread count is no longer drawn on the tray icon, where it was too small to read. It stays on
+  the taskbar icon and in the tray icon's tooltip.
+- "Sync now" is no longer in the tray menu; it is still in the File menu of the mail window.
+
+### Fixed
+
+- The settings, about and error dialogs open centred over the mail window, and closing one gives the
+  focus back to the mail window instead of leaving it behind other applications.
+
 ## [0.1.1] - 2026-10-24
 
 ### Fixed

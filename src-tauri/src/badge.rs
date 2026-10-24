@@ -146,18 +146,17 @@ fn draw_bitmap(cv: &mut Canvas, cx: f32, cy: f32, r: f32, text: &str) {
     }
 }
 
-/// Where the disc sits and whether it wears a white ring.
+/// Where the disc sits.
 #[derive(Clone, Copy)]
 struct Disc {
     cx: f32,
     cy: f32,
     r: f32,
-    ring: bool,
 }
 
-/// A red disc (white ring optional) with the count, anti-aliased.
+/// A red disc with the count, anti-aliased.
 fn draw(buf: &mut [u8], w: usize, h: usize, disc: Disc, n: u64) {
-    let Disc { cx, cy, r, ring } = disc;
+    let Disc { cx, cy, r } = disc;
     let cover = |d: f32, edge: f32| (edge - d + 0.5).clamp(0.0, 1.0);
     for y in 0..h {
         for x in 0..w {
@@ -167,15 +166,8 @@ fn draw(buf: &mut [u8], w: usize, h: usize, disc: Disc, n: u64) {
             if outer <= 0.0 {
                 continue;
             }
-            let red = if ring { cover(d, r * 0.86) } else { 1.0 };
-            let mix = |a: f32, b: f32| (a * red + b * (1.0 - red)) as u8;
             let i = (y * w + x) * 4;
-            buf[i..i + 4].copy_from_slice(&[
-                mix(226.0, 255.0),
-                mix(40.0, 255.0),
-                mix(70.0, 255.0),
-                (outer * 255.0) as u8,
-            ]);
+            buf[i..i + 4].copy_from_slice(&[226, 40, 70, (outer * 255.0) as u8]);
         }
     }
     let text = label(n);
@@ -189,26 +181,6 @@ pub fn set(app: &AppHandle, unread: u64) {
     if LAST.swap(unread, Ordering::Relaxed) == unread {
         return;
     }
-    if let (Some(tray), Some(base)) = (app.tray_by_id("main"), app.default_window_icon()) {
-        let (w, h) = (base.width() as usize, base.height() as usize);
-        let mut rgba = base.rgba().to_vec();
-        if unread > 0 {
-            let r = w.min(h) as f32 * 0.42;
-            draw(
-                &mut rgba,
-                w,
-                h,
-                Disc {
-                    cx: w as f32 - r,
-                    cy: h as f32 - r,
-                    r,
-                    ring: true,
-                },
-                unread,
-            );
-        }
-        let _ = tray.set_icon(Some(Image::new_owned(rgba, w as u32, h as u32)));
-    }
     if let Some(win) = app.get_webview_window("web") {
         let overlay = (unread > 0).then(|| {
             let mut rgba = vec![0u8; 64 * 64 * 4];
@@ -220,7 +192,6 @@ pub fn set(app: &AppHandle, unread: u64) {
                     cx: 32.0,
                     cy: 32.0,
                     r: 32.0,
-                    ring: false,
                 },
                 unread,
             );
@@ -263,7 +234,6 @@ mod tests {
                     cx: 32.0,
                     cy: 32.0,
                     r: 32.0,
-                    ring: false,
                 },
                 n,
             );
@@ -292,7 +262,6 @@ mod tests {
                 cx: 32.0,
                 cy: 32.0,
                 r: 32.0,
-                ring: false,
             },
             5,
         );

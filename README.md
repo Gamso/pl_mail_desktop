@@ -17,10 +17,9 @@ poorly: Windows notifications, an unread count on the icon, start with Windows, 
 - **Windows notifications** for each new unread message in the inbox, across all accounts. More
   than three at once are grouped into a single notification. Clicking a notification opens the
   message it is about (or the inbox, for a grouped notification).
-- **Unread badge**, Thunderbird-style, on the taskbar icon and on the tray icon (the count is also
-  in the tray tooltip).
-- **Tray icon**: left-click opens the mail, right-click opens the menu (open, sync now, settings,
-  quit). Closing a window does not quit the application.
+- **Unread badge**, Thunderbird-style, on the taskbar icon (the count is also in the tray icon's
+  tooltip).
+- **Tray icon**: left-click opens the mail, right-click opens the menu (open, settings, quit). Closing a window does not quit the application.
 - **Menu bar on Alt**: a bare press of `Alt` shows or hides the bar, as in Thunderbird. It closes
   again after each choice.
   - *File*: new message, sync now, print, close window, quit.
@@ -84,7 +83,7 @@ To start over: quit the application and delete these three items.
 
 - The application talks to pl_mail over **JMAP** (`/.well-known/jmap`), authenticated with the app
   password as a `Bearer` token. This is the API pl_mail provides for third-party clients.
-- *Sync now* (File menu or tray icon) presses pl_mail's own sync button, which makes the server
+- *Sync now* (File menu) presses pl_mail's own sync button, which makes the server
   fetch from Gmail, IMAP and the others. The application then re-reads the server to update the
   badge and the notifications.
 - Every 60 seconds (adjustable): `Email/changes` lists the mail that appeared since the last

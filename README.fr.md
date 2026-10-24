@@ -18,10 +18,10 @@ Windows, icône dans la barre système.
 - **Notifications Windows** pour chaque nouveau mail non lu de la boîte de réception, tous comptes
   confondus. Au-delà de trois mails d'un coup, une seule notification groupée. Un clic sur la
   notification ouvre le message concerné (ou la boîte de réception pour une notification groupée).
-- **Pastille de non-lus** façon Thunderbird, sur l'icône de la barre des tâches et sur celle de la
-  barre système (le nombre figure aussi dans l'infobulle).
+- **Pastille de non-lus** façon Thunderbird, sur l'icône de la barre des tâches (le nombre figure
+  aussi dans l'infobulle de l'icône de la barre système).
 - **Icône dans la barre système** : clic gauche pour ouvrir le mail, clic droit pour le menu
-  (ouvrir, synchroniser maintenant, paramètres, quitter). Fermer une fenêtre ne quitte pas l'application.
+  (ouvrir, paramètres, quitter). Fermer une fenêtre ne quitte pas l'application.
 - **Barre de menus avec Alt** : un appui seul sur `Alt` affiche ou masque la barre, comme dans
   Thunderbird. Elle se referme après chaque choix.
   - *Fichier* : nouveau message, synchroniser maintenant, imprimer, fermer la fenêtre,
@@ -91,7 +91,7 @@ Pour repartir de zéro : quitter l'application, supprimer ces trois éléments.
 
 - L'application parle à pl_mail en **JMAP** (`/.well-known/jmap`), authentifiée par le mot de passe
   d'application en `Bearer`. C'est l'API prévue pour les clients tiers.
-- *Synchroniser maintenant* (menu Fichier ou icône de la barre système) appuie sur le bouton de
+- *Synchroniser maintenant* (menu Fichier) appuie sur le bouton de
   synchronisation de pl_mail, qui va relever les boîtes chez Gmail, IMAP, etc. ; l'application relit
   ensuite le serveur pour mettre à jour la pastille et les notifications.
 - Toutes les 60 secondes (réglable) : `Email/changes` donne les mails apparus depuis le dernier
