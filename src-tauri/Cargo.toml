@@ -22,7 +22,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 tokio = { version = "1", features = ["time", "sync", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 ab_glyph = "0.2"
