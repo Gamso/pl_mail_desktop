@@ -4,10 +4,25 @@ All notable changes to plMail Desktop are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-10-25
+
+### Added
+
+- **Updates.** The application looks for a newer release on GitHub at launch (at most once a day,
+  switchable in the settings) and from *Help → Check for updates…*. A dialog shows the release
+  notes and offers to install, remind later or skip that version. Pre-releases are never offered.
+  An installed copy downloads the installer, checks its signature against the key built into the
+  application, and updates in place, keeping its shortcuts, taskbar pin and settings, then
+  restarts. A portable copy only points to the release page. Versions before this one cannot
+  update themselves: install this one by hand once.
+- A portable `plMail-Desktop_X.Y.Z_x64-portable.exe` is attached to each release.
 
 ### Changed
 
+- **At Windows logon the mail window now opens**, like in any mail client; before, only the tray icon
+  appeared and the taskbar button stayed idle. The old behaviour is a new option, "Start in the tray
+  only". If the network is not up yet, the application keeps trying for a minute before reporting
+  that the server is unreachable.
 - The unread count is no longer drawn on the tray icon, where it was too small to read. It stays on
   the taskbar icon and in the tray icon's tooltip.
 - "Sync now" is no longer in the tray menu; it is still in the File menu of the mail window.
@@ -58,5 +73,6 @@ First release.
 - Start with Windows, and a setting for self-signed certificates.
 - Windows installer for the current user, no administrator rights needed.
 
+[0.2.0]: https://github.com/Gamso/pl_mail_desktop/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Gamso/pl_mail_desktop/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Gamso/pl_mail_desktop/releases/tag/v0.1.0

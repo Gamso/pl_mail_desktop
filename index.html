@@ -44,7 +44,9 @@
             </div>
             <label class="check"><input id="accept_invalid_certs" type="checkbox" /> <span data-i18n="field.insecure"></span></label>
             <label class="check"><input id="start_with_windows" type="checkbox" checked /> <span data-i18n="field.autostart"></span></label>
+            <label class="check indent"><input id="start_in_tray" type="checkbox" /> <span data-i18n="field.start_in_tray"></span></label>
             <label class="check"><input id="handle_mailto" type="checkbox" /> <span data-i18n="field.mailto"></span></label>
+            <label class="check"><input id="check_updates" type="checkbox" checked /> <span data-i18n="field.updates"></span></label>
             <p id="mailto-help" class="hint" hidden>
               <span data-i18n="mailto.hint"></span>
               <button type="button" class="link" id="default-apps" data-i18n="btn.default_apps"></button>
@@ -71,6 +73,32 @@
         <div class="actions">
           <button type="button" class="primary" id="about-link" data-i18n="about.link"></button>
           <button type="button" class="ghost" id="about-close" data-i18n="about.close"></button>
+        </div>
+      </section>
+
+      <!-- Updates -->
+      <section id="view-update" hidden>
+        <header class="hero">
+          <img src="/src/assets/logo.png" alt="" class="logo big" />
+          <h1 id="update-title"></h1>
+          <p class="lead" id="update-lead"></p>
+        </header>
+        <div id="update-notes" class="notes" hidden>
+          <h2 data-i18n="update.notes"></h2>
+          <pre id="update-notes-body"></pre>
+        </div>
+        <div id="update-progress-box" hidden>
+          <progress id="update-progress" max="100"></progress>
+          <p class="hint" id="update-progress-text"></p>
+        </div>
+        <p id="update-message" class="error" role="alert"></p>
+        <div class="actions">
+          <button type="button" class="primary" id="update-install" data-i18n="update.install"></button>
+          <button type="button" class="primary" id="update-open-page" data-i18n="update.open_page"></button>
+          <button type="button" class="primary" id="update-retry" data-i18n="update.retry"></button>
+          <button type="button" class="ghost" id="update-later" data-i18n="update.later"></button>
+          <button type="button" class="ghost" id="update-skip" data-i18n="update.skip"></button>
+          <button type="button" class="ghost" id="update-close" data-i18n="about.close"></button>
         </div>
       </section>
 

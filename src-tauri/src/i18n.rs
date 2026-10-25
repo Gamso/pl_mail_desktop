@@ -449,6 +449,51 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
                 "Open &data folder",
             ],
         ),
+        "menu.check_updates" => pick(
+            lang,
+            [
+                "Check for &updates…",
+                "Nach &Updates suchen …",
+                "Rechercher des &mises à jour…",
+                "Check for &updates…",
+            ],
+        ),
+        "toast.update_title" => pick(
+            lang,
+            [
+                "plMail Desktop {version} is available",
+                "plMail Desktop {version} ist verfügbar",
+                "plMail Desktop {version} est disponible",
+                "plMail Desktop {version} be ready to sail",
+            ],
+        ),
+        "toast.update_body" => pick(
+            lang,
+            [
+                "Click to see what's new and install it.",
+                "Klicke, um die Neuerungen zu sehen und zu installieren.",
+                "Cliquez pour voir les nouveautés et l'installer.",
+                "Click to see what's new and install it.",
+            ],
+        ),
+        "err.update" => pick(
+            lang,
+            [
+                "Could not check for updates: {e}",
+                "Die Suche nach Updates ist fehlgeschlagen: {e}",
+                "Impossible de rechercher les mises à jour : {e}",
+                "Could not check for updates: {e}",
+            ],
+        ),
+        "err.update_portable" => pick(
+            lang,
+            [
+                "This copy was not installed by the installer: download the new version from the release page.",
+                "Diese Kopie wurde nicht mit dem Installer installiert: lade die neue Version von der Release-Seite herunter.",
+                "Cette copie n'a pas été installée par l'installeur : téléchargez la nouvelle version depuis la page de la release.",
+                "This copy was not installed by the installer: download the new version from the release page.",
+            ],
+        ),
         _ => "",
     }
 }

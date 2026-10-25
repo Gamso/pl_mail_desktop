@@ -45,6 +45,10 @@ Windows, icône dans la barre système.
   serveur pl_mail restent dans la fenêtre, et les liens `mailto:` ouvrent un nouveau message).
 - **Fenêtres bloquantes** : paramètres, à propos et erreur verrouillent la fenêtre mail tant qu'elles
   sont ouvertes.
+- **Mises à jour** : l'application cherche une version plus récente sur GitHub au lancement (au plus
+  une fois par jour) et depuis *Aide → Rechercher des mises à jour…*. Les pré-versions ne sont jamais
+  proposées. Une copie installée télécharge l'installeur signé et se met à jour sur place, en gardant
+  ses raccourcis, son épinglage et ses réglages, puis redémarre ; on peut aussi ignorer une version.
 - **Liens `mailto:`** (optionnel) : une fois activé dans les paramètres, l'application est proposée
   à Windows comme application de messagerie. Choisissez-la une fois dans *Paramètres → Applications
   → Applications par défaut* : un clic sur un lien `mailto:` n'importe où ouvre alors un nouveau
@@ -76,8 +80,10 @@ d'application. La connexion est testée avant d'être enregistrée.
 | Langue | Automatique (Windows), English, Deutsch, Français, Pirate English |
 | Fréquence de vérification | 60 s par défaut, 15 s minimum |
 | Certificat auto-signé | À n'activer que pour un serveur de confiance (réseau local) |
-| Démarrer avec Windows | Au démarrage, l'application reste dans la barre système sans ouvrir la fenêtre |
+| Démarrer avec Windows | L'application démarre à l'ouverture de session et ouvre la fenêtre mail (elle attend le réseau jusqu'à une minute) |
+| Démarrer uniquement dans la barre système | Avec *Démarrer avec Windows* : reste dans la barre système au lieu d'ouvrir la fenêtre |
 | Gérer les liens `mailto:` | Déclare l'application à Windows comme application de messagerie (utilisateur courant uniquement) |
+| Rechercher les mises à jour automatiquement | Activé par défaut ; contacte github.com une fois par jour |
 
 Emplacements des données :
 
@@ -102,14 +108,30 @@ Pour repartir de zéro : quitter l'application, supprimer ces trois éléments.
 - Pas de connexion permanente (SSE) : chaque connexion occuperait un worker PHP du serveur, ce que
   le guide des clients de pl_mail déconseille sur un petit serveur personnel.
 
+## Mises à jour
+
+- La recherche lit `latest.json` dans la dernière release GitHub qui n'est ni un brouillon ni une
+  pré-version (`…/releases/latest/download/latest.json`) : les bêtas ne sont donc jamais proposées.
+- L'installeur est signé avec la clé de mise à jour du projet, et l'application refuse une mise à jour
+  dont la signature ne correspond pas à la clé publique qu'elle contient.
+- La mise à jour lance l'installeur en mode « mise à jour » : l'ancienne version n'est **pas**
+  désinstallée d'abord, donc raccourcis, épinglage dans la barre des tâches, réglages et démarrage
+  avec Windows restent en place.
+- Une copie **portable** (le fichier `…-portable.exe`, ou une version de développement) ne peut pas
+  s'installer une mise à jour elle-même : elle signale qu'une nouvelle version existe et ouvre la page
+  de la release.
+- Les versions antérieures à la première qui contient ce mécanisme ne peuvent pas se mettre à jour
+  seules : installez celle-là à la main.
+
 ## Sécurité et vie privée
 
 - La fenêtre mail charge une page distante : elle n'a **aucun accès** aux commandes internes de
   l'application.
 - La touche Alt est lue grâce aux événements clavier de WebView2, uniquement quand la fenêtre mail
   a le focus. Aucun crochet clavier global.
-- L'application n'envoie rien ailleurs que vers votre serveur (et ouvre GitHub si vous cliquez sur
-  le lien de la page À propos).
+- L'application parle à votre serveur, et à github.com pour chercher les mises à jour (désactivable
+  dans les paramètres). Elle ouvre GitHub dans votre navigateur si vous cliquez sur le lien de la
+  page À propos.
 
 ## Limites connues
 
@@ -135,7 +157,13 @@ npm run tauri dev
 npm run tauri build
 ```
 
-L'installeur est produit dans `src-tauri\target\release\bundle\nsis\`.
+L'installeur est produit dans `src-tauri\target\release\bundle\nsis\`. La compilation le signe aussi
+pour la mise à jour, ce qui demande la clé privée dans l'environnement (`TAURI_SIGNING_PRIVATE_KEY`
+et `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Pour compiler en local sans la clé :
+
+```powershell
+npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
+```
 
 ### Tests et intégration continue
 
@@ -148,16 +176,31 @@ GitHub Actions (`.github/workflows/`) :
 
 - `ci.yml` : à chaque push sur `main` et chaque pull request, compile le frontend, vérifie le
   formatage (`cargo fmt`), les avertissements (`cargo clippy`) et lance les tests, sur Windows.
-- `release.yml` : pousser un tag `vX.Y.Z` (identique à la version de `src-tauri/tauri.conf.json`)
-  lance les tests, compile l'installeur Windows et le joint à une **release en brouillon** à
-  publier à la main.
+- `release.yml` : pousser un tag `vX.Y.Z` lance les tests, compile l'installeur Windows, le signe
+  pour la mise à jour, et joint l'installeur, sa signature, `latest.json` et un exe portable à une
+  **release en brouillon** à publier à la main. Il s'arrête tôt si le tag diffère de la version de
+  `src-tauri/tauri.conf.json`, si la clé de signature manque, ou si `CHANGELOG.md` n'a pas de section
+  `## [X.Y.Z]` : cette section devient les notes de la release, que la mise à jour montre aux
+  utilisateurs. Un tag avec un tiret (`v0.3.0-beta.1`) est publié comme pré-version et jamais proposé
+  par la mise à jour.
 
-Pour publier une version : mettre à jour la version dans `src-tauri/tauri.conf.json`,
-`src-tauri/Cargo.toml` et `package.json`, puis :
+Mise en place, une seule fois : générer la paire de clés, mettre la clé publique dans
+`plugins.updater.pubkey` de `src-tauri/tauri.conf.json`, et stocker la clé privée et son mot de passe
+dans les secrets du dépôt `TAURI_SIGNING_PRIVATE_KEY` et `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+npm run tauri signer generate -- -w "$HOME/.tauri/plmail-desktop.key"
+```
+
+Gardez la clé privée hors du dépôt, avec une sauvegarde : **sans elle, les copies installées ne
+peuvent plus être mises à jour**.
+
+Pour publier une version : ajouter une section dans `CHANGELOG.md`, mettre à jour la version dans
+`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` et `package.json`, fusionner, puis :
+
+```powershell
+git tag -a v0.2.0 -m "plMail Desktop 0.2.0"
+git push origin v0.2.0
 ```
 
 L'interface graphique (fenêtres, tray, barre de menus) n'est pas testée automatiquement : elle se

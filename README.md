@@ -38,6 +38,10 @@ poorly: Windows notifications, an unread count on the icon, start with Windows, 
 - **Links in mails** open in your default browser (links to your own pl_mail server stay in the
   window, and `mailto:` links open a new message).
 - **Modal dialogs**: settings, about and error windows lock the mail window while they are open.
+- **Updates**: the application looks for a newer release on GitHub at launch (at most once a day)
+  and from *Help → Check for updates…*. Pre-releases are never offered. An installed copy
+  downloads the signed installer and updates in place, keeping its shortcuts, taskbar pin and
+  settings, then restarts; you can also skip a version.
 - **`mailto:` links** (optional): once enabled in the settings, the application is offered to
   Windows as a mail app. Choose it once in *Settings → Apps → Default apps*, and a click on a
   `mailto:` link anywhere opens a new message in pl_mail. pl_mail only reads the recipient for now
@@ -68,8 +72,10 @@ is tested before anything is saved.
 | Language | Automatic (Windows), English, Deutsch, Français, Pirate English |
 | Check frequency | 60 s by default, 15 s minimum |
 | Self-signed certificate | Only enable for a server you trust (local network) |
-| Start with Windows | At logon the application stays in the tray without opening a window |
+| Start with Windows | The application starts at logon and opens the mail window (it waits up to a minute for the network) |
+| Start in the tray only | With *Start with Windows*: stay in the tray at logon instead of opening the window |
 | Handle `mailto:` links | Registers the application with Windows as a mail app (current user only) |
+| Check for updates automatically | On by default; contacts github.com once a day |
 
 Where the data lives:
 
@@ -94,14 +100,26 @@ To start over: quit the application and delete these three items.
 - No permanent connection (SSE): each one would hold a PHP worker on the server, which pl_mail's
   client guide advises against on a small personal server.
 
+## Updates
+
+- The check reads `latest.json` from the newest GitHub release that is neither a draft nor a
+  pre-release (`…/releases/latest/download/latest.json`), so betas are never offered.
+- The installer is signed with the project's updater key and the application refuses an update whose
+  signature does not match the public key built into it.
+- The update runs the installer in update mode: the previous version is **not** uninstalled first,
+  so your shortcuts, taskbar pin, settings and start-with-Windows entry stay as they are.
+- A **portable** copy (the `…-portable.exe` file, or a development build) cannot install an update
+  itself: it tells you a new version exists and opens the release page.
+- Versions before the first one with the updater cannot update themselves; install that one by hand.
+
 ## Security and privacy
 
 - The mail window loads a remote page: it has **no access** to the application's internal
   commands.
 - The Alt key is read from WebView2's keyboard events, only while the mail window has focus. There
   is no global keyboard hook.
-- The application sends nothing anywhere but to your server (and opens GitHub if you click the
-  link on the About page).
+- The application talks to your server, and to github.com to look for updates (turn that off in the
+  settings). It opens GitHub in your browser if you click the link on the About page.
 
 ## Known limitations
 
@@ -127,7 +145,13 @@ npm run tauri dev
 npm run tauri build
 ```
 
-The installer is written to `src-tauri\target\release\bundle\nsis\`.
+The installer is written to `src-tauri\target\release\bundle\nsis\`. The build also signs it for
+the updater, which needs the private key in the environment (`TAURI_SIGNING_PRIVATE_KEY`, and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). For a local build without the key:
+
+```powershell
+npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
+```
 
 ### Tests and continuous integration
 
@@ -140,16 +164,30 @@ GitHub Actions (`.github/workflows/`):
 
 - `ci.yml`: on every push to `main` and every pull request, builds the frontend, checks formatting
   (`cargo fmt`) and warnings (`cargo clippy`), and runs the tests, on Windows.
-- `release.yml`: pushing a `vX.Y.Z` tag (equal to the version in `src-tauri/tauri.conf.json`) runs
-  the tests, builds the Windows installer and attaches it to a **draft release** to publish by
-  hand.
+- `release.yml`: pushing a `vX.Y.Z` tag runs the tests, builds the Windows installer, signs it for
+  the updater, and attaches the installer, its signature, `latest.json` and a portable exe to a
+  **draft release** to publish by hand. It stops early if the tag differs from the version in
+  `src-tauri/tauri.conf.json`, if the signing key is missing, or if `CHANGELOG.md` has no
+  `## [X.Y.Z]` section: that section becomes the release notes, which the updater shows to users.
+  A tag with a dash (`v0.3.0-beta.1`) is published as a pre-release and never offered by the updater.
 
-To cut a release, update the version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and
-`package.json`, then:
+One-time setup: generate the updater key pair, put the public key in
+`plugins.updater.pubkey` of `src-tauri/tauri.conf.json`, and store the private key and its password
+as the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+npm run tauri signer generate -- -w "$HOME/.tauri/plmail-desktop.key"
+```
+
+Keep the private key out of the repository, and keep a backup: **without it, installed copies can
+no longer be updated**.
+
+To cut a release, add a section to `CHANGELOG.md`, update the version in
+`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `package.json`, merge, then:
+
+```powershell
+git tag -a v0.2.0 -m "plMail Desktop 0.2.0"
+git push origin v0.2.0
 ```
 
 The graphical interface (windows, tray, menu bar) is not tested automatically: check it by hand.
