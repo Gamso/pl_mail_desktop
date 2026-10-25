@@ -72,7 +72,8 @@ is tested before anything is saved.
 | Language | Automatic (Windows), English, Deutsch, Français, Pirate English |
 | Check frequency | 60 s by default, 15 s minimum |
 | Self-signed certificate | Only enable for a server you trust (local network) |
-| Start with Windows | At logon the application stays in the tray without opening a window |
+| Start with Windows | The application starts at logon and opens the mail window (it waits up to a minute for the network) |
+| Start in the tray only | With *Start with Windows*: stay in the tray at logon instead of opening the window |
 | Handle `mailto:` links | Registers the application with Windows as a mail app (current user only) |
 | Check for updates automatically | On by default; contacts github.com once a day |
 

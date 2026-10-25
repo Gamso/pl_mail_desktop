@@ -80,7 +80,8 @@ d'application. La connexion est testée avant d'être enregistrée.
 | Langue | Automatique (Windows), English, Deutsch, Français, Pirate English |
 | Fréquence de vérification | 60 s par défaut, 15 s minimum |
 | Certificat auto-signé | À n'activer que pour un serveur de confiance (réseau local) |
-| Démarrer avec Windows | Au démarrage, l'application reste dans la barre système sans ouvrir la fenêtre |
+| Démarrer avec Windows | L'application démarre à l'ouverture de session et ouvre la fenêtre mail (elle attend le réseau jusqu'à une minute) |
+| Démarrer uniquement dans la barre système | Avec *Démarrer avec Windows* : reste dans la barre système au lieu d'ouvrir la fenêtre |
 | Gérer les liens `mailto:` | Déclare l'application à Windows comme application de messagerie (utilisateur courant uniquement) |
 | Rechercher les mises à jour automatiquement | Activé par défaut ; contacte github.com une fois par jour |
 

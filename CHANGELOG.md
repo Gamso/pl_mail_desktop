@@ -17,6 +17,10 @@ All notable changes to plMail Desktop are listed here. The format follows
 
 ### Changed
 
+- **At Windows logon the mail window now opens**, like in any mail client; before, only the tray icon
+  appeared and the taskbar button stayed idle. The old behaviour is a new option, "Start in the tray
+  only". If the network is not up yet, the application keeps trying for a minute before reporting
+  that the server is unreachable.
 - The unread count is no longer drawn on the tray icon, where it was too small to read. It stays on
   the taskbar icon and in the tray icon's tooltip.
 - "Sync now" is no longer in the tray menu; it is still in the File menu of the mail window.

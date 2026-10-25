@@ -9,6 +9,7 @@ interface Settings {
   interval_secs: number;
   accept_invalid_certs: boolean;
   start_with_windows: boolean;
+  start_in_tray: boolean;
   handle_mailto: boolean;
   check_updates: boolean;
   language: string;
@@ -85,6 +86,11 @@ function buildLanguageSelect() {
   for (const l of LANGUAGES) select.append(new Option(l.label, l.code));
 }
 
+/** "Start in the tray only" only means something when the application starts with Windows. */
+function syncTrayOption() {
+  $<HTMLInputElement>("start_in_tray").disabled = !$<HTMLInputElement>("start_with_windows").checked;
+}
+
 async function loadSettings() {
   buildLanguageSelect();
   const s = await invoke<SettingsView>("get_settings");
@@ -94,6 +100,8 @@ async function loadSettings() {
   $<HTMLInputElement>("interval_secs").value = String(s.interval_secs);
   $<HTMLInputElement>("accept_invalid_certs").checked = s.accept_invalid_certs;
   $<HTMLInputElement>("start_with_windows").checked = s.start_with_windows;
+  $<HTMLInputElement>("start_in_tray").checked = s.start_in_tray;
+  syncTrayOption();
   $<HTMLInputElement>("handle_mailto").checked = s.handle_mailto;
   $<HTMLInputElement>("check_updates").checked = s.check_updates;
   $("mailto-help").hidden = !s.handle_mailto;
@@ -176,6 +184,7 @@ $("form").addEventListener("submit", async (e) => {
         interval_secs: Number($<HTMLInputElement>("interval_secs").value) || 60,
         accept_invalid_certs: $<HTMLInputElement>("accept_invalid_certs").checked,
         start_with_windows: $<HTMLInputElement>("start_with_windows").checked,
+        start_in_tray: $<HTMLInputElement>("start_in_tray").checked,
         handle_mailto: $<HTMLInputElement>("handle_mailto").checked,
         check_updates: $<HTMLInputElement>("check_updates").checked,
         language: $<HTMLSelectElement>("language").value,
@@ -193,6 +202,7 @@ $("form").addEventListener("submit", async (e) => {
   }
 });
 
+$("start_with_windows").addEventListener("change", syncTrayOption);
 $("handle_mailto").addEventListener("change", () => {
   $("mailto-help").hidden = !$<HTMLInputElement>("handle_mailto").checked;
 });

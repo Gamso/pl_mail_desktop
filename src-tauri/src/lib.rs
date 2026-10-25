@@ -14,6 +14,9 @@ mod links_tests;
 mod mailto;
 #[cfg(test)]
 mod mailto_tests;
+mod startup;
+#[cfg(test)]
+mod startup_tests;
 mod updates;
 #[cfg(test)]
 mod updates_tests;
@@ -66,6 +69,8 @@ struct Settings {
     interval_secs: u64,
     accept_invalid_certs: bool,
     start_with_windows: bool,
+    /// With `start_with_windows`: stay in the tray at logon instead of opening the mail window.
+    start_in_tray: bool,
     /// Offer this application to Windows as a mail app for `mailto:` links.
     handle_mailto: bool,
     /// Look for a newer release on GitHub at launch, then once a day.
@@ -81,6 +86,7 @@ impl Default for Settings {
             interval_secs: 60,
             accept_invalid_certs: false,
             start_with_windows: true,
+            start_in_tray: false,
             handle_mailto: false,
             check_updates: true,
             language: "auto".to_string(),
@@ -478,16 +484,23 @@ async fn save_settings(
     std::fs::write(&path, serde_json::to_string_pretty(&settings).unwrap())
         .map_err(|e| e.to_string())?;
 
-    let launcher = app.autolaunch();
-    let _ = if settings.start_with_windows {
-        launcher.enable()
-    } else {
-        launcher.disable()
-    };
+    // A development build must not point Windows' autostart entry at its own exe, which would
+    // replace the installed application's entry.
+    if !cfg!(debug_assertions) {
+        let launcher = app.autolaunch();
+        let _ = if settings.start_with_windows {
+            launcher.enable()
+        } else {
+            launcher.disable()
+        };
+    }
 
     #[cfg(windows)]
     {
-        let registered = if settings.handle_mailto {
+        // As for autostart: a development build leaves the installed application's registration alone.
+        let registered = if cfg!(debug_assertions) {
+            Ok(())
+        } else if settings.handle_mailto {
             std::env::current_exe().and_then(|exe| {
                 default_app::register(&exe, APP_NAME, "Opens mailto: links in your pl_mail inbox")
             })
@@ -567,6 +580,22 @@ fn show_main(app: &AppHandle) {
 /// deliberately absent from every capability: it cannot call our commands.
 fn open_mail(app: &AppHandle) {
     open_mail_at(app, None);
+}
+
+/// Opens the mail window at logon. The network is often not up yet then, so keep trying for a
+/// minute before calling the server unreachable.
+fn open_mail_after_logon(app: &AppHandle) {
+    const ATTEMPTS: u32 = 12;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        for attempt in 1..=ATTEMPTS {
+            match open_mail_window(&app, None).await {
+                Ok(()) => return,
+                Err(e) if attempt == ATTEMPTS => show_view(&app, "unreachable", &e),
+                Err(_) => tokio::time::sleep(Duration::from_secs(5)).await,
+            }
+        }
+    });
 }
 
 /// Same, landing on one of pl_mail's pages (`/mail/message/42`) instead of wherever it was.
@@ -953,12 +982,16 @@ pub fn run() {
             if configured(&handle) {
                 restart_poller(&handle);
                 let args: Vec<String> = std::env::args().collect();
-                // Started by a `mailto:` link: open the composer. Started by Windows at logon:
-                // stay in the tray. Started by the user: show the mail.
+                // Started by a `mailto:` link: open the composer. Otherwise show the mail, except
+                // at logon when the user prefers the tray only.
                 if let Some(path) = mailto::from_args(&args) {
                     open_mail_at(&handle, Some(path));
-                } else if !args.iter().any(|a| a == "--minimized") {
-                    open_mail(&handle);
+                } else if startup::opens_window(&args, load_settings(&handle).start_in_tray) {
+                    if startup::at_logon(&args) {
+                        open_mail_after_logon(&handle);
+                    } else {
+                        open_mail(&handle);
+                    }
                 }
             } else {
                 show_view(&handle, "settings", "");

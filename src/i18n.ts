@@ -63,6 +63,12 @@ const T: Record<string, Entry> = {
     fr: "Accepter un certificat auto-signé",
     pi: "Trust a home-forged certificate",
   },
+  "field.start_in_tray": {
+    en: "Start in the tray only, without opening the window",
+    de: "Nur im Infobereich starten, ohne das Fenster zu öffnen",
+    fr: "Démarrer uniquement dans la barre système, sans ouvrir la fenêtre",
+    pi: "Start in the tray only, without opening the window",
+  },
   "field.autostart": { en: "Start with Windows", de: "Mit Windows starten", fr: "Démarrer avec Windows", pi: "Set sail with Windows" },
   "field.mailto": {
     en: "Handle mailto: links (new message from other apps)",
