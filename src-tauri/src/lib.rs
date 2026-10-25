@@ -14,6 +14,9 @@ mod links_tests;
 mod mailto;
 #[cfg(test)]
 mod mailto_tests;
+mod updates;
+#[cfg(test)]
+mod updates_tests;
 
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -65,6 +68,8 @@ struct Settings {
     start_with_windows: bool,
     /// Offer this application to Windows as a mail app for `mailto:` links.
     handle_mailto: bool,
+    /// Look for a newer release on GitHub at launch, then once a day.
+    check_updates: bool,
     /// `auto` follows Windows; otherwise one of plMail's locale codes (`en`, `de`, `fr`, `pi`).
     language: String,
 }
@@ -77,6 +82,7 @@ impl Default for Settings {
             accept_invalid_certs: false,
             start_with_windows: true,
             handle_mailto: false,
+            check_updates: true,
             language: "auto".to_string(),
         }
     }
@@ -102,6 +108,7 @@ struct Shared {
     poller: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     check_now: Arc<Notify>,
     pending_view: std::sync::Mutex<Option<ViewRequest>>,
+    pending_update: std::sync::Mutex<updates::Pending>,
 }
 
 fn settings_path(app: &AppHandle) -> PathBuf {
@@ -216,10 +223,10 @@ async fn set_status(app: &AppHandle, ok: bool, text: &str) {
     }
 }
 
-/// A toast whose click brings up the mail window. Unpackaged dev builds borrow
-/// PowerShell's identity, otherwise Windows would not show the toast at all.
+/// A toast; `on_click` runs when the user clicks it. Unpackaged dev builds borrow PowerShell's
+/// identity, otherwise Windows would not show the toast at all.
 #[cfg(windows)]
-fn notify(app: &AppHandle, title: &str, body: &str, target: Option<String>) {
+fn toast(app: &AppHandle, title: &str, body: &str, on_click: impl Fn(&AppHandle) + Send + 'static) {
     let app_id = if cfg!(debug_assertions) {
         tauri_winrt_notification::Toast::POWERSHELL_APP_ID
     } else {
@@ -230,7 +237,7 @@ fn notify(app: &AppHandle, title: &str, body: &str, target: Option<String>) {
         .title(title)
         .text1(body)
         .on_activated(move |_| {
-            open_mail_at(&handle, target.clone());
+            on_click(&handle);
             Ok(())
         })
         .show();
@@ -240,7 +247,20 @@ fn notify(app: &AppHandle, title: &str, body: &str, target: Option<String>) {
 }
 
 #[cfg(not(windows))]
-fn notify(_app: &AppHandle, _title: &str, _body: &str, _target: Option<String>) {}
+fn toast(
+    _app: &AppHandle,
+    _title: &str,
+    _body: &str,
+    _on_click: impl Fn(&AppHandle) + Send + 'static,
+) {
+}
+
+/// A toast whose click brings up the mail window, on one of pl_mail's pages when `target` is given.
+fn notify(app: &AppHandle, title: &str, body: &str, target: Option<String>) {
+    toast(app, title, body, move |app| {
+        open_mail_at(app, target.clone())
+    });
+}
 
 fn notify_mails(app: &AppHandle, mails: &[jmap::NewMail]) {
     if mails.len() > 3 {
@@ -715,6 +735,7 @@ fn mail_menu(app: &AppHandle, ui: Lang) -> tauri::Result<Menu<tauri::Wry>> {
             &item("act:shortcuts", "help.shortcuts")?,
             &item("go:/whats-new", "help.whats_new")?,
             &sep()?,
+            &item("act:check-updates", "menu.check_updates")?,
             &item("act:data-folder", "help.data_folder")?,
             &sep()?,
             &about,
@@ -740,6 +761,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
         "menu-about" => show_view(app, "about", ""),
         "act:check" => sync_now(app),
         "act:quit" => app.exit(0),
+        "act:check-updates" => updates::check_manually(app),
         "act:data-folder" => {
             if let Ok(dir) = app.path().app_config_dir() {
                 let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
@@ -867,6 +889,7 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Shared::default())
         .invoke_handler(tauri::generate_handler![
             get_settings,
@@ -877,6 +900,11 @@ pub fn run() {
             check_now,
             send_test_notification,
             retry_open,
+            updates::get_update_info,
+            updates::install_update,
+            updates::skip_update,
+            updates::open_release_page,
+            updates::check_updates_now,
             open_default_apps,
             close_dialog
         ])
@@ -919,6 +947,8 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            updates::spawn_auto_check(&handle);
 
             if configured(&handle) {
                 restart_poller(&handle);

@@ -66,6 +66,11 @@ const KEYS: &[&str] = &[
     "help.shortcuts",
     "help.whats_new",
     "help.data_folder",
+    "menu.check_updates",
+    "toast.update_title",
+    "toast.update_body",
+    "err.update",
+    "err.update_portable",
 ];
 const LANGS: [Lang; 4] = [Lang::En, Lang::De, Lang::Fr, Lang::Pi];
 

@@ -6,6 +6,15 @@ All notable changes to plMail Desktop are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Updates.** The application looks for a newer release on GitHub at launch (at most once a day,
+  switchable in the settings) and from *Help → Check for updates…*. A dialog shows the release
+  notes and offers to install, remind later or skip that version. Pre-releases are never offered.
+  An installed copy downloads the signed installer and updates in place, keeping its shortcuts,
+  taskbar pin and settings, then restarts. A portable copy only points to the release page.
+- A portable `plMail-Desktop_X.Y.Z_x64-portable.exe` is attached to each release.
+
 ### Changed
 
 - The unread count is no longer drawn on the tray icon, where it was too small to read. It stays on

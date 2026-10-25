@@ -1,7 +1,14 @@
 name: Release
 
-# Push a tag such as v0.1.0 (matching the version in tauri.conf.json) to build the Windows
-# installer and attach it to a draft GitHub release.
+# Push a tag such as v0.2.0 to build the Windows installer, sign it for the in-app updater, and
+# attach both, plus a portable exe, to a draft GitHub release.
+#
+# The tag must equal the version in src-tauri/tauri.conf.json, and CHANGELOG.md must have a
+# "## [x.y.z]" section for it: that section becomes the release notes, and the same text is what
+# the updater shows to users. A tag with a dash (v0.2.0-beta.1) is published as a pre-release,
+# which the updater never offers.
+#
+# Repository secrets needed: TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 on:
   push:
     tags: ['v*']
@@ -14,6 +21,41 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Check the tag, the version and the signing key agree
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne $env:TAG) {
+            throw "The tag is $env:TAG but src-tauri/tauri.conf.json says $version. Bump the version (tauri.conf.json, Cargo.toml, package.json), then tag again."
+          }
+          if ([string]::IsNullOrEmpty($env:SIGNING_KEY)) {
+            throw "The TAURI_SIGNING_PRIVATE_KEY secret is missing: the updater could not verify this release."
+          }
+
+      - name: Take the release notes from CHANGELOG.md
+        id: notes
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          $changelog = Get-Content CHANGELOG.md -Raw
+          $pattern = "(?ms)^## \[$([regex]::Escape($version))\][^\n]*\n(.*?)(?=^## \[|^\[[^\]]+\]: |\z)"
+          if ($changelog -match $pattern) {
+            $notes = $Matches[1].Trim()
+          } elseif ($version.Contains('-')) {
+            $notes = "Pre-release $version. It is not offered by the in-app updater."
+          } else {
+            throw "CHANGELOG.md has no '## [$version]' section."
+          }
+          $notes += "`n`n### Install`nDownload **plMail Desktop_${version}_x64-setup.exe** and run it: it installs for the current user, with no administrator rights. An existing installation is updated in place, keeping its shortcuts. The installer is not code-signed, so Windows SmartScreen may warn you the first time (More info, then Run anyway).`n`nThe **portable** exe needs no installation, but does not update itself.`n"
+          $delimiter = "EOF_" + [guid]::NewGuid().ToString("N")
+          $text = "notes<<$delimiter`n$notes`n$delimiter`n"
+          [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $text, (New-Object System.Text.UTF8Encoding $false))
 
       - uses: actions/setup-node@v7
         with:
@@ -35,14 +77,29 @@ jobs:
           cargo test
 
       - uses: tauri-apps/tauri-action@v1
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: plMail Desktop ${{ github.ref_name }}
-          releaseBody: |
-            Windows installer for plMail Desktop. It installs for the current user, without
-            administrator rights. See the README for setup.
+          releaseBody: ${{ steps.notes.outputs.notes }}
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          # The updater reads latest.json; point it at the NSIS installer, the only bundle built.
+          updaterJsonPreferNsis: true
           args: --bundles nsis
+
+      - name: Attach the portable exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          $name = "plMail-Desktop_${version}_x64-portable.exe"
+          Copy-Item src-tauri/target/release/plmail-client.exe $name
+          gh api --method POST "https://uploads.github.com/repos/${{ github.repository }}/releases/$env:RELEASE_ID/assets?name=$name" -H "Content-Type: application/octet-stream" --input $name
