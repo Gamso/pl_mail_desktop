@@ -4,6 +4,18 @@ All notable changes to plMail Desktop are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-10-25
+
+### Fixed
+
+- **Checking for updates failed** with "Could not fetch a valid release JSON from the remote", even
+  though a release was published: GitHub answers 404 to the JSON-only request the updater sent for
+  `latest.json`. The check now accepts any content type, and the download keeps its own.
+  Version 0.2.0 cannot update itself because of this: install 0.2.1 by hand once.
+- **The unread badge disappeared from the taskbar button** after the window was closed to the tray
+  and opened again, and stayed away until the number changed. It is now painted again at every
+  check and whenever the window is shown.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added
@@ -73,6 +85,7 @@ First release.
 - Start with Windows, and a setting for self-signed certificates.
 - Windows installer for the current user, no administrator rights needed.
 
+[0.2.1]: https://github.com/Gamso/pl_mail_desktop/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Gamso/pl_mail_desktop/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Gamso/pl_mail_desktop/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Gamso/pl_mail_desktop/releases/tag/v0.1.0
