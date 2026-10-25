@@ -70,3 +70,45 @@ fn the_updater_configuration_is_valid() {
 
     assert_eq!(conf["bundle"]["createUpdaterArtifacts"], true);
 }
+
+/// Asks GitHub for the real `latest.json`, the way the application does, and checks it can be used.
+/// It needs the network, so it only runs on request: `cargo test -- --ignored the_published`.
+#[tokio::test]
+#[ignore = "needs the network: asks GitHub for the real latest.json"]
+async fn the_published_latest_json_is_served_and_usable() {
+    let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let endpoint = conf["plugins"]["updater"]["endpoints"][0].as_str().unwrap();
+
+    let response = reqwest::Client::new()
+        .get(endpoint)
+        .header("Accept", "*/*")
+        .send()
+        .await
+        .expect("GitHub must be reachable");
+    assert!(
+        response.status().is_success(),
+        "status {}",
+        response.status()
+    );
+
+    let release: serde_json::Value = response
+        .json()
+        .await
+        .expect("latest.json must be valid JSON");
+    let version = release["version"].as_str().expect("a version");
+    assert!(is_stable(version), "{version}");
+    let target = &release["platforms"]["windows-x86_64"];
+    assert!(
+        target["url"]
+            .as_str()
+            .is_some_and(|u| u.starts_with("https://")),
+        "{target}"
+    );
+    // A minisign signature starts with "untrusted comment", which is "dW50cnVzdGVk" in base64.
+    assert!(
+        target["signature"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("dW50cnVzdGVk")),
+        "{target}"
+    );
+}

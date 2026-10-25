@@ -125,10 +125,27 @@ fn base_info(app: &AppHandle, state: &str) -> UpdateInfo {
     }
 }
 
+/// The plugin asks for `Accept: application/json`, and GitHub answers 404 to that on a release
+/// asset's address, although the very same address answers 200 to `*/*` (the user then saw "Could
+/// not fetch a valid release JSON from the remote" with a published release). So the check asks for
+/// `*/*` instead.
+fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+    app.updater_builder()
+        .header("Accept", "*/*")
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 async fn fetch(app: &AppHandle) -> Result<Option<Update>, String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    match updater.check().await {
-        Ok(Some(update)) if is_stable(&update.version) => Ok(Some(update)),
+    match updater(app)?.check().await {
+        Ok(Some(mut update)) if is_stable(&update.version) => {
+            // The update inherits the check's headers. The download of an asset through
+            // GitHub's API needs `application/octet-stream` (the plugin's own default, used
+            // when no Accept is set), and would receive JSON metadata with `*/*`.
+            update.headers.remove("accept");
+            Ok(Some(update))
+        }
         Ok(_) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
