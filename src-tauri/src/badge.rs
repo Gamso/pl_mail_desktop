@@ -6,8 +6,8 @@ use std::sync::{
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use tauri::{AppHandle, Manager, image::Image};
 
-/// Last count painted; `u64::MAX` forces a repaint on the next call.
-pub static LAST: AtomicU64 = AtomicU64::new(u64::MAX);
+/// The latest unread count, painted again whenever the mail window's taskbar button may be new.
+static UNREAD: AtomicU64 = AtomicU64::new(0);
 
 // 3x5 digits for machines without Segoe UI, one row per byte, high bit on the left.
 const BITMAP: [[u8; 5]; 10] = [
@@ -177,10 +177,19 @@ fn draw(buf: &mut [u8], w: usize, h: usize, disc: Disc, n: u64) {
     }
 }
 
+/// Records the count and paints it.
 pub fn set(app: &AppHandle, unread: u64) {
-    if LAST.swap(unread, Ordering::Relaxed) == unread {
-        return;
-    }
+    UNREAD.store(unread, Ordering::Relaxed);
+    apply(app);
+}
+
+/// Paints the last known count on the mail window's taskbar button.
+///
+/// Hiding a window removes its taskbar button and showing it creates a new one, which has no
+/// overlay: so this runs every time the count is polled, and whenever the window is created,
+/// shown or focused, not only when the number changes.
+pub fn apply(app: &AppHandle) {
+    let unread = UNREAD.load(Ordering::Relaxed);
     if let Some(win) = app.get_webview_window("web") {
         let overlay = (unread > 0).then(|| {
             let mut rgba = vec![0u8; 64 * 64 * 4];

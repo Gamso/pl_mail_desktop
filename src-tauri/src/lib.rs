@@ -637,6 +637,7 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        badge::apply(app);
         if let Some(target) = landing {
             let _ = w.navigate(target);
         }
@@ -676,8 +677,7 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
     // The menu bar stays out of sight until Alt is pressed.
     let _ = window.hide_menu();
     altkey::attach(&window);
-    // Forces the next poll to repaint the taskbar badge on the new window.
-    badge::LAST.store(u64::MAX, Ordering::Relaxed);
+    badge::apply(app);
     hide_main(app);
     Ok(())
 }
@@ -948,6 +948,12 @@ pub fn run() {
                 } else {
                     let _ = window.hide();
                 }
+            }
+            // A window shown again has a new taskbar button, without the unread badge.
+            if let WindowEvent::Focused(true) = event
+                && window.label() == "web"
+            {
+                badge::apply(window.app_handle());
             }
         })
         .setup(|app| {

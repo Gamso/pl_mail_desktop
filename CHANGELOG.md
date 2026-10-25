@@ -12,6 +12,9 @@ All notable changes to plMail Desktop are listed here. The format follows
   though a release was published: GitHub answers 404 to the JSON-only request the updater sent for
   `latest.json`. The check now accepts any content type, and the download keeps its own.
   Version 0.2.0 cannot update itself because of this: install 0.2.1 by hand once.
+- **The unread badge disappeared from the taskbar button** after the window was closed to the tray
+  and opened again, and stayed away until the number changed. It is now painted again at every
+  check and whenever the window is shown.
 
 ## [0.2.0] - 2026-10-25
 
