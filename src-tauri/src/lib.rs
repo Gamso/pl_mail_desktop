@@ -1,3 +1,4 @@
+mod actions;
 mod altkey;
 mod badge;
 #[cfg(windows)]
@@ -229,21 +230,37 @@ async fn set_status(app: &AppHandle, ok: bool, text: &str) {
     }
 }
 
-/// A toast; `on_click` runs when the user clicks it. Unpackaged dev builds borrow PowerShell's
-/// identity, otherwise Windows would not show the toast at all.
+/// A toast: a title, up to two lines of text and action buttons given as `(label, action)`.
+/// `on_click` runs when the user clicks it, with `None` for the toast itself and the button's action
+/// for a button. Unpackaged dev builds borrow PowerShell's identity, otherwise Windows would not
+/// show the toast at all.
 #[cfg(windows)]
-fn toast(app: &AppHandle, title: &str, body: &str, on_click: impl Fn(&AppHandle) + Send + 'static) {
+fn toast(
+    app: &AppHandle,
+    title: &str,
+    lines: &[&str],
+    buttons: &[(&str, &str)],
+    on_click: impl Fn(&AppHandle, Option<String>) + Send + 'static,
+) {
     let app_id = if cfg!(debug_assertions) {
         tauri_winrt_notification::Toast::POWERSHELL_APP_ID
     } else {
         "fr.gamso.plmailclient"
     };
     let handle = app.clone();
-    let shown = tauri_winrt_notification::Toast::new(app_id)
-        .title(title)
-        .text1(body)
-        .on_activated(move |_| {
-            on_click(&handle);
+    let mut toast = tauri_winrt_notification::Toast::new(app_id).title(title);
+    if let Some(first) = lines.first() {
+        toast = toast.text1(first);
+    }
+    if let Some(second) = lines.get(1) {
+        toast = toast.text2(second);
+    }
+    for (label, action) in buttons {
+        toast = toast.add_button(label, action);
+    }
+    let shown = toast
+        .on_activated(move |action| {
+            on_click(&handle, action);
             Ok(())
         })
         .show();
@@ -256,40 +273,58 @@ fn toast(app: &AppHandle, title: &str, body: &str, on_click: impl Fn(&AppHandle)
 fn toast(
     _app: &AppHandle,
     _title: &str,
-    _body: &str,
-    _on_click: impl Fn(&AppHandle) + Send + 'static,
+    _lines: &[&str],
+    _buttons: &[(&str, &str)],
+    _on_click: impl Fn(&AppHandle, Option<String>) + Send + 'static,
 ) {
 }
 
 /// A toast whose click brings up the mail window, on one of pl_mail's pages when `target` is given.
 fn notify(app: &AppHandle, title: &str, body: &str, target: Option<String>) {
-    toast(app, title, body, move |app| {
+    toast(app, title, &[body], &[], move |app, _| {
         open_mail_at(app, target.clone())
     });
 }
 
 fn notify_mails(app: &AppHandle, mails: &[jmap::NewMail]) {
+    let ui = lang(app);
     if mails.len() > 3 {
-        let text = fill(
-            tr(lang(app), "toast.many"),
-            &[("n", &mails.len().to_string())],
-        );
+        let text = fill(tr(ui, "toast.many"), &[("n", &mails.len().to_string())]);
         // Several at once: land on the inbox, where they all are.
         notify(app, "plMail", &text, Some("/mail/inbox".to_string()));
         return;
     }
     for m in mails {
+        let title = fill(
+            tr(ui, "toast.received_one"),
+            &[("account", &m.account_name)],
+        );
+        let subject: String = m.subject.chars().take(200).collect();
+        let sender = fill(tr(ui, "toast.from"), &[("sender", &m.from)]);
+
         // pl_mail's address for a message is its JMAP id; anything that is not plain digits
-        // would not match its route anyway, so it is not turned into a link.
-        let target =
-            m.id.chars()
-                .all(|c| c.is_ascii_digit())
-                .then(|| format!("/mail/message/{}", m.id));
-        notify(
+        // would not match its route anyway, so it gets neither a link nor buttons.
+        let known = m.id.chars().all(|c| c.is_ascii_digit());
+        let target = known.then(|| format!("/mail/message/{}", m.id));
+        let buttons = [
+            (tr(ui, "toast.btn_read"), "read"),
+            (tr(ui, "toast.btn_delete"), "delete"),
+        ];
+        let (account_id, email_id) = (m.account_id.clone(), m.id.clone());
+        toast(
             app,
-            &format!("{} — {}", m.from, m.subject),
-            &m.preview,
-            target,
+            &title,
+            &[subject.as_str(), sender.as_str()],
+            if known { &buttons } else { &[] },
+            move |app, action| match action.as_deref() {
+                Some("read") => {
+                    actions::run(app, &account_id, &email_id, actions::MailAction::MarkRead)
+                }
+                Some("delete") => {
+                    actions::run(app, &account_id, &email_id, actions::MailAction::Trash)
+                }
+                _ => open_mail_at(app, target.clone()),
+            },
         );
     }
 }
@@ -322,8 +357,9 @@ async fn run_poller(app: AppHandle) {
                 cursors = session
                     .mail_accounts
                     .into_iter()
-                    .map(|account_id| AccountCursor {
-                        account_id,
+                    .map(|account| AccountCursor {
+                        account_id: account.id,
+                        account_name: account.name,
                         state: None,
                         inbox_id: None,
                     })
@@ -530,7 +566,23 @@ fn check_now(app: AppHandle) {
 
 #[tauri::command]
 fn send_test_notification(app: AppHandle) {
-    notify(&app, "plMail", tr(lang(&app), "toast.test"), None);
+    let ui = lang(&app);
+    let title = fill(
+        tr(ui, "toast.received_one"),
+        &[("account", "you@example.com")],
+    );
+    let sender = fill(tr(ui, "toast.from"), &[("sender", APP_NAME)]);
+    // The buttons are shown but do nothing: there is no real message behind this one.
+    toast(
+        &app,
+        &title,
+        &[tr(ui, "toast.test"), sender.as_str()],
+        &[
+            (tr(ui, "toast.btn_read"), "read"),
+            (tr(ui, "toast.btn_delete"), "delete"),
+        ],
+        |_, _| {},
+    );
 }
 
 /// Windows will not let an application make itself the default mail app, so the user picks
@@ -984,6 +1036,16 @@ pub fn run() {
                 .build(app)?;
 
             updates::spawn_auto_check(&handle);
+
+            // Installing a new version by hand through the "uninstall first" path deletes Windows'
+            // autostart entry. Put it back when the setting says the application should start with
+            // Windows. A development build leaves the installed application's entry alone.
+            if !cfg!(debug_assertions) && load_settings(&handle).start_with_windows {
+                let launcher = handle.autolaunch();
+                if !launcher.is_enabled().unwrap_or(false) {
+                    let _ = launcher.enable();
+                }
+            }
 
             if configured(&handle) {
                 restart_poller(&handle);

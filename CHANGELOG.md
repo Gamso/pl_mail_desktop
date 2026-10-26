@@ -4,6 +4,21 @@ All notable changes to plMail Desktop are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Notifications with buttons**, laid out like Thunderbird's: the account that received the mail
+  ("you@example.com received 1 new message"), the subject, the sender, and **Mark read** and
+  **Delete** buttons. Delete moves the message to the Trash, as in pl_mail. A click on the text still
+  opens the message. A grouped notification (more than three at once) has no buttons.
+
+### Fixed
+
+- **The application did not start with Windows after a new version was installed by hand.** The
+  "uninstall first" choice of the installer deletes Windows' autostart entry. It is now put back at
+  launch whenever "Start with Windows" is on.
+
 ## [0.2.1] - 2026-10-25
 
 ### Fixed

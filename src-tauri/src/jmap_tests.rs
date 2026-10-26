@@ -70,7 +70,7 @@ fn healthy(method: &str, path: &str, body: &str, origin: &str) -> (u16, String) 
         let session = json!({
             "apiUrl": format!("{origin}/jmap/api"),
             "accounts": {
-                "7": { "accountCapabilities": { "urn:ietf:params:jmap:mail": {} } },
+                "7": { "name": "me@example.com", "accountCapabilities": { "urn:ietf:params:jmap:mail": {} } },
                 "9": { "accountCapabilities": { "urn:ietf:params:jmap:calendars": {} } }
             }
         });
@@ -110,7 +110,10 @@ fn client(base: &str) -> Client {
 async fn session_lists_only_mail_accounts() {
     let base = serve(healthy).await;
     let session = client(&base).session().await.unwrap();
-    assert_eq!(session.mail_accounts, vec!["7".to_string()]);
+    assert_eq!(session.mail_accounts.len(), 1);
+    assert_eq!(session.mail_accounts[0].id, "7");
+    // The notification names the account it is about.
+    assert_eq!(session.mail_accounts[0].name, "me@example.com");
     assert!(session.api_url.ends_with("/jmap/api"));
 }
 
@@ -121,6 +124,7 @@ async fn only_unread_inbox_mail_is_reported() {
     let session = client.session().await.unwrap();
     let mut cursor = AccountCursor {
         account_id: "7".into(),
+        account_name: "me@example.com".into(),
         state: None,
         inbox_id: None,
     };
@@ -142,6 +146,8 @@ async fn only_unread_inbox_mail_is_reported() {
         .unwrap();
     assert_eq!(mails.len(), 1);
     assert_eq!(mails[0].id, "a");
+    assert_eq!(mails[0].account_id, "7");
+    assert_eq!(mails[0].account_name, "me@example.com");
     assert_eq!(mails[0].from, "Alice");
     assert_eq!(mails[0].subject, "Hello");
     assert_eq!(cursor.state.as_deref(), Some("s2"));
@@ -163,4 +169,69 @@ async fn probe_tells_a_proxy_error_from_a_live_server() {
     assert!(probe(&down, false, Lang::En).await.is_err());
     // Nothing listens on port 1, so the connection is refused.
     assert!(probe("http://127.0.0.1:1", false, Lang::En).await.is_err());
+}
+
+/// A server that only accepts exactly the requests the notification buttons should send.
+fn actions(method: &str, _path: &str, body: &str, origin: &str) -> (u16, String) {
+    if method == "GET" {
+        return healthy(method, "", body, origin);
+    }
+    let sent = |text: &str| body.contains(text);
+    let result = if sent("\"destroy\":[\"42\"]") && sent("\"accountId\":\"7\"") {
+        json!({ "destroyed": ["42"] })
+    } else if sent("\"destroy\":[\"gone\"]") {
+        json!({ "notDestroyed": { "gone": { "type": "notFound" } } })
+    } else if sent("\"keywords/$seen\":true") && sent("\"accountId\":\"7\"") && sent("\"42\"") {
+        json!({ "updated": { "42": null } })
+    } else if sent("\"gone\"") {
+        json!({ "notUpdated": { "gone": { "type": "notFound" } } })
+    } else {
+        json!({
+            "notUpdated": { "42": { "type": "invalidProperties", "description": "unexpected request" } },
+            "notDestroyed": { "42": { "type": "forbidden" } }
+        })
+    };
+    (
+        200,
+        json!({ "methodResponses": [["Email/set", result, "r"]] }).to_string(),
+    )
+}
+
+#[tokio::test]
+async fn mark_read_sets_the_seen_keyword_on_that_message() {
+    let base = serve(actions).await;
+    let client = client(&base);
+    let api = client.session().await.unwrap().api_url;
+    client.mark_read(&api, "7", "42").await.unwrap();
+    // The same request for another account is not what the server accepts.
+    assert!(client.mark_read(&api, "8", "42").await.is_err());
+}
+
+#[tokio::test]
+async fn trash_destroys_that_message_which_pl_mail_turns_into_a_move_to_the_trash() {
+    let base = serve(actions).await;
+    let client = client(&base);
+    let api = client.session().await.unwrap().api_url;
+    client.trash(&api, "7", "42").await.unwrap();
+    assert!(client.trash(&api, "8", "42").await.is_err());
+}
+
+#[tokio::test]
+async fn a_message_that_is_already_gone_is_not_an_error() {
+    let base = serve(actions).await;
+    let client = client(&base);
+    let api = client.session().await.unwrap().api_url;
+    client.mark_read(&api, "7", "gone").await.unwrap();
+    client.trash(&api, "7", "gone").await.unwrap();
+}
+
+#[tokio::test]
+async fn a_refusal_from_the_server_is_reported() {
+    let base = serve(actions).await;
+    let client = client(&base);
+    let api = client.session().await.unwrap().api_url;
+    let error = client.trash(&api, "9", "42").await.unwrap_err();
+    assert!(error.contains("forbidden"), "{error}");
+    let error = client.mark_read(&api, "9", "42").await.unwrap_err();
+    assert!(error.contains("unexpected request"), "{error}");
 }

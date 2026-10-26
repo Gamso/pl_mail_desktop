@@ -494,6 +494,35 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
                 "This copy was not installed by the installer: download the new version from the release page.",
             ],
         ),
+        "toast.received_one" => pick(
+            lang,
+            [
+                "{account} received 1 new message",
+                "{account} hat 1 neue Nachricht erhalten",
+                "{account} a reçu 1 nouveau message",
+                "{account} found 1 new bottle",
+            ],
+        ),
+        "toast.from" => pick(
+            lang,
+            [
+                "from \"{sender}\"",
+                "von „{sender}“",
+                "de « {sender} »",
+                "from \"{sender}\"",
+            ],
+        ),
+        "toast.btn_read" => pick(lang, ["Mark read", "Gelesen", "Marquer lu", "Mark read"]),
+        "toast.btn_delete" => pick(lang, ["Delete", "Löschen", "Supprimer", "Toss it"]),
+        "toast.action_failed" => pick(
+            lang,
+            [
+                "The action failed: {e}",
+                "Die Aktion ist fehlgeschlagen: {e}",
+                "L'action a échoué : {e}",
+                "The action failed: {e}",
+            ],
+        ),
         _ => "",
     }
 }
