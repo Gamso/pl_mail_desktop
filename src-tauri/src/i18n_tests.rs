@@ -71,6 +71,11 @@ const KEYS: &[&str] = &[
     "toast.update_body",
     "err.update",
     "err.update_portable",
+    "toast.received_one",
+    "toast.from",
+    "toast.btn_read",
+    "toast.btn_delete",
+    "toast.action_failed",
 ];
 const LANGS: [Lang; 4] = [Lang::En, Lang::De, Lang::Fr, Lang::Pi];
 

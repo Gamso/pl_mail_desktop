@@ -180,8 +180,9 @@ async fn run_check(app: &AppHandle, manual: bool) {
                         tr(ui, "toast.update_title"),
                         &[("version", &update.version)],
                     ),
-                    tr(ui, "toast.update_body"),
-                    |app| crate::show_view(app, "update", ""),
+                    &[tr(ui, "toast.update_body")],
+                    &[],
+                    |app, _| crate::show_view(app, "update", ""),
                 );
             }
         }

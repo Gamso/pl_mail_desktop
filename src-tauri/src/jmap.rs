@@ -14,20 +14,29 @@ pub struct Client {
 
 pub struct Session {
     pub api_url: String,
-    pub mail_accounts: Vec<String>,
+    pub mail_accounts: Vec<MailAccount>,
+}
+
+/// One connected mail account, as the session lists it.
+pub struct MailAccount {
+    pub id: String,
+    /// What the account is called: its address.
+    pub name: String,
 }
 
 pub struct NewMail {
     /// The JMAP Email id, which is also the number in pl_mail's `/mail/message/{id}` address.
     pub id: String,
+    pub account_id: String,
+    pub account_name: String,
     pub from: String,
     pub subject: String,
-    pub preview: String,
 }
 
 /// Where one account stands: the Email state we last saw and its Inbox binding id.
 pub struct AccountCursor {
     pub account_id: String,
+    pub account_name: String,
     pub state: Option<String>,
     pub inbox_id: Option<String>,
 }
@@ -90,7 +99,10 @@ impl Client {
                 accounts
                     .iter()
                     .filter(|(_, a)| a["accountCapabilities"].get(MAIL_CAP).is_some())
-                    .map(|(id, _)| id.clone())
+                    .map(|(id, a)| MailAccount {
+                        id: id.clone(),
+                        name: a["name"].as_str().unwrap_or(id).to_string(),
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -229,7 +241,7 @@ impl Client {
                 vec![json!(["Email/get", {
                     "accountId": id,
                     "ids": created,
-                    "properties": ["from", "subject", "preview", "keywords", "mailboxIds"]
+                    "properties": ["from", "subject", "keywords", "mailboxIds"]
                 }, "g"])],
             )
             .await?;
@@ -239,6 +251,7 @@ impl Client {
             .cloned()
             .unwrap_or_default();
         let inbox = cur.inbox_id.as_deref();
+        let (account_id, account_name) = (cur.account_id.clone(), cur.account_name.clone());
         Ok(list
             .iter()
             .filter(|m| {
@@ -253,6 +266,8 @@ impl Client {
                 let name = from["name"].as_str().filter(|n| !n.is_empty());
                 NewMail {
                     id: m["id"].as_str().unwrap_or_default().to_string(),
+                    account_id: account_id.clone(),
+                    account_name: account_name.clone(),
                     from: name
                         .or_else(|| from["email"].as_str())
                         .unwrap_or_else(|| tr(self.lang, "toast.unknown_sender"))
@@ -261,15 +276,74 @@ impl Client {
                         .as_str()
                         .unwrap_or_else(|| tr(self.lang, "toast.no_subject"))
                         .to_string(),
-                    preview: m["preview"]
-                        .as_str()
-                        .unwrap_or("")
-                        .chars()
-                        .take(140)
-                        .collect(),
                 }
             })
             .collect())
+    }
+}
+
+impl Client {
+    /// Marks one message as read. A message that is already gone is not an error.
+    pub async fn mark_read(
+        &self,
+        api_url: &str,
+        account_id: &str,
+        email_id: &str,
+    ) -> Result<(), String> {
+        let resp = self
+            .call(
+                api_url,
+                vec![json!(["Email/set", {
+                    "accountId": account_id,
+                    "update": { email_id: { "keywords/$seen": true } }
+                }, "r"])],
+            )
+            .await?;
+        set_outcome(&resp, email_id, "updated", "notUpdated")
+    }
+
+    /// Moves one message to the Trash: in pl_mail, destroying an Email is a move to the Trash and
+    /// never a deletion. A message that is already gone is not an error.
+    pub async fn trash(
+        &self,
+        api_url: &str,
+        account_id: &str,
+        email_id: &str,
+    ) -> Result<(), String> {
+        let resp = self
+            .call(
+                api_url,
+                vec![json!(["Email/set", { "accountId": account_id, "destroy": [email_id] }, "d"])],
+            )
+            .await?;
+        set_outcome(&resp, email_id, "destroyed", "notDestroyed")
+    }
+}
+
+/// Reads the answer to an `Email/set` about one message: done, already gone (fine), or a real error.
+fn set_outcome(resp: &[Value], id: &str, done: &str, failed: &str) -> Result<(), String> {
+    let Some(r) = resp.first() else {
+        return Err("Empty answer from the server.".to_string());
+    };
+    if r[0] == "error" {
+        return Err(r[1]["type"].as_str().unwrap_or("error").to_string());
+    }
+    let done = match &r[1][done] {
+        Value::Object(map) => map.contains_key(id),
+        Value::Array(list) => list.iter().any(|v| v.as_str() == Some(id)),
+        _ => false,
+    };
+    if done {
+        return Ok(());
+    }
+    let failure = &r[1][failed][id];
+    match failure["type"].as_str() {
+        Some("notFound") => Ok(()),
+        Some(kind) => Err(match failure["description"].as_str() {
+            Some(why) => format!("{kind}: {why}"),
+            None => kind.to_string(),
+        }),
+        None => Err("The server did not confirm the change.".to_string()),
     }
 }
 
