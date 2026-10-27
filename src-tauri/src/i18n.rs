@@ -512,6 +512,7 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
                 "from \"{sender}\"",
             ],
         ),
+        "toast.btn_reply" => pick(lang, ["Reply", "Antworten", "Répondre", "Answer back"]),
         "toast.btn_read" => pick(lang, ["Mark read", "Gelesen", "Marquer lu", "Mark read"]),
         "toast.btn_delete" => pick(lang, ["Delete", "Löschen", "Supprimer", "Toss it"]),
         "toast.action_failed" => pick(

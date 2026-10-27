@@ -306,7 +306,9 @@ fn notify_mails(app: &AppHandle, mails: &[jmap::NewMail]) {
         // would not match its route anyway, so it gets neither a link nor buttons.
         let known = m.id.chars().all(|c| c.is_ascii_digit());
         let target = known.then(|| format!("/mail/message/{}", m.id));
+        let reply = known.then(|| format!("/compose/reply/{}", m.id));
         let buttons = [
+            (tr(ui, "toast.btn_reply"), "reply"),
             (tr(ui, "toast.btn_read"), "read"),
             (tr(ui, "toast.btn_delete"), "delete"),
         ];
@@ -317,6 +319,7 @@ fn notify_mails(app: &AppHandle, mails: &[jmap::NewMail]) {
             &[subject.as_str(), sender.as_str()],
             if known { &buttons } else { &[] },
             move |app, action| match action.as_deref() {
+                Some("reply") => open_mail_at(app, reply.clone()),
                 Some("read") => {
                     actions::run(app, &account_id, &email_id, actions::MailAction::MarkRead)
                 }
@@ -578,6 +581,7 @@ fn send_test_notification(app: AppHandle) {
         &title,
         &[tr(ui, "toast.test"), sender.as_str()],
         &[
+            (tr(ui, "toast.btn_reply"), "reply"),
             (tr(ui, "toast.btn_read"), "read"),
             (tr(ui, "toast.btn_delete"), "delete"),
         ],

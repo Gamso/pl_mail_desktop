@@ -17,7 +17,7 @@ poorly: Windows notifications, an unread count on the icon, start with Windows, 
 - **Windows notifications** for each new unread message in the inbox, across all accounts. More
   than three at once are grouped into a single notification. Clicking a notification opens the
   message it is about (or the inbox, for a grouped notification). Each notification names the
-  account that received the mail, the subject and the sender, and has **Mark read** and **Delete**
+  account that received the mail, the subject and the sender, and has **Reply**, **Mark read** and **Delete**
   buttons (delete moves the message to the Trash, as in pl_mail).
 - **Unread badge**, Thunderbird-style, on the taskbar icon (the count is also in the tray icon's
   tooltip).

@@ -9,9 +9,10 @@ All notable changes to plMail Desktop are listed here. The format follows
 ### Added
 
 - **Notifications with buttons**, laid out like Thunderbird's: the account that received the mail
-  ("you@example.com received 1 new message"), the subject, the sender, and **Mark read** and
-  **Delete** buttons. Delete moves the message to the Trash, as in pl_mail. A click on the text still
-  opens the message. A grouped notification (more than three at once) has no buttons.
+  ("you@example.com received 1 new message"), the subject, the sender, and **Reply**, **Mark
+  read** and **Delete** buttons. Reply opens the reply form in pl_mail; Delete moves the message to
+  the Trash, as in pl_mail. A click on the text still opens the message. A grouped notification
+  (more than three at once) has no buttons.
 
 ### Fixed
 

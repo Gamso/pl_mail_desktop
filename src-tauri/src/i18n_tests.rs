@@ -73,6 +73,7 @@ const KEYS: &[&str] = &[
     "err.update_portable",
     "toast.received_one",
     "toast.from",
+    "toast.btn_reply",
     "toast.btn_read",
     "toast.btn_delete",
     "toast.action_failed",
