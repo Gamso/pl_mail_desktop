@@ -4,7 +4,7 @@ All notable changes to plMail Desktop are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] - 2026-10-27
 
 ### Added
 
@@ -101,6 +101,7 @@ First release.
 - Start with Windows, and a setting for self-signed certificates.
 - Windows installer for the current user, no administrator rights needed.
 
+[0.3.0]: https://github.com/Gamso/pl_mail_desktop/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Gamso/pl_mail_desktop/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Gamso/pl_mail_desktop/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Gamso/pl_mail_desktop/compare/v0.1.0...v0.1.1
