@@ -19,7 +19,7 @@ Windows, icône dans la barre système.
   confondus. Au-delà de trois mails d'un coup, une seule notification groupée. Un clic sur la
   notification ouvre le message concerné (ou la boîte de réception pour une notification groupée).
   Chaque notification indique le compte qui a reçu le mail, l'objet et l'expéditeur, avec des boutons
-  **Marquer lu** et **Supprimer** (supprimer déplace le message vers la corbeille, comme dans
+  **Répondre**, **Marquer lu** et **Supprimer** (supprimer déplace le message vers la corbeille, comme dans
   pl_mail).
 - **Pastille de non-lus** façon Thunderbird, sur l'icône de la barre des tâches (le nombre figure
   aussi dans l'infobulle de l'icône de la barre système).
