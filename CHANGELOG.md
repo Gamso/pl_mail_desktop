@@ -4,7 +4,7 @@ All notable changes to plMail Desktop are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-11-14
 
 ### Added
 
@@ -19,8 +19,6 @@ All notable changes to plMail Desktop are listed here. The format follows
   waiting for the next check. In the tray it keeps checking at the set interval, as pl_mail asks
   clients not to hold the stream in the background. It can be switched off in the advanced
   settings.
-- **Code signing of the installer and the portable exe** (Authenticode, Azure Artifact Signing)
-  in the release workflow, once it is set up for the repository; releases stay unsigned until then.
 
 ### Changed
 
@@ -159,6 +157,7 @@ First release.
 - Start with Windows, and a setting for self-signed certificates.
 - Windows installer for the current user, no administrator rights needed.
 
+[0.4.0]: https://github.com/Gamso/pl_mail_desktop/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Gamso/pl_mail_desktop/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Gamso/pl_mail_desktop/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Gamso/pl_mail_desktop/compare/v0.1.1...v0.2.0
