@@ -33,6 +33,18 @@ All notable changes to plMail Desktop are listed here. The format follows
   have; it now opens the composer directly.
 - Clicking a notification while the settings dialog was open did not open the message.
 
+### Security
+
+- **The mail window only shows the pl_mail server.** A link or a redirect to another site now
+  opens in the default browser instead of loading inside the application. A sign-in that pl_mail
+  starts itself (connecting a Gmail or Microsoft account) still runs in the window until it comes
+  back to the server.
+- **"Accept a self-signed certificate" now applies to the configured server only.** It used to
+  switch certificate checks off for every site the mail window talked to, including what a mail
+  loads.
+- The settings window has a strict Content-Security-Policy, and the Tauri API is no longer exposed
+  as a global.
+
 ## [0.3.0] - 2026-10-27
 
 ### Added

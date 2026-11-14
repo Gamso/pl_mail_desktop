@@ -2,6 +2,8 @@ mod actions;
 mod altkey;
 mod badge;
 #[cfg(windows)]
+mod certs;
+#[cfg(windows)]
 mod default_app;
 mod i18n;
 #[cfg(test)]
@@ -742,34 +744,77 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
     }
     jmap::probe(&settings.server_url, settings.accept_invalid_certs, ui).await?;
 
-    let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection");
-    if settings.accept_invalid_certs {
-        args.push_str(" --ignore-certificate-errors");
-    }
+    let args = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
     let menu = mail_menu(app, ui).map_err(|e| e.to_string())?;
+    let first_page = landing.unwrap_or(url);
+    // With a self-signed certificate, the window starts blank: the handler that accepts the
+    // server's certificate has to be in place before the server is asked for anything.
+    let start = if settings.accept_invalid_certs {
+        "about:blank"
+            .parse()
+            .map_err(|_| "about:blank".to_string())?
+    } else {
+        first_page.clone()
+    };
+    let nav_app = app.clone();
+    let nav_server = server.clone();
+    let cert_server = server.clone();
+    let signing_in = std::sync::atomic::AtomicBool::new(false);
 
-    let window =
-        WebviewWindowBuilder::new(app, "web", WebviewUrl::External(landing.unwrap_or(url)))
-            .title(APP_NAME)
-            .inner_size(1280.0, 820.0)
-            .menu(menu)
-            .initialization_script_for_all_frames(OPEN_LINKS_SCRIPT)
-            // Links in a mail ask for a window of their own; a bare window would ignore them.
-            .on_new_window(move |target, _| {
-                follow_link(&links_app, &server, &target);
-                NewWindowResponse::Deny
-            })
-            .additional_browser_args(&args)
-            // WebView2 refuses two windows on one data folder with different launch
-            // options; the settings window has its own, so this one gets a folder too.
-            .data_directory(
-                app.path()
-                    .app_local_data_dir()
-                    .unwrap_or_default()
-                    .join("webview-plmail"),
-            )
-            .build()
-            .map_err(|e| fill(tr(ui, "err.window"), &[("e", &e.to_string())]))?;
+    let window = WebviewWindowBuilder::new(app, "web", WebviewUrl::External(start))
+        .title(APP_NAME)
+        .inner_size(1280.0, 820.0)
+        .menu(menu)
+        .initialization_script_for_all_frames(OPEN_LINKS_SCRIPT)
+        // Links in a mail ask for a window of their own; a bare window would ignore them.
+        .on_new_window(move |target, _| {
+            follow_link(&links_app, &server, &target);
+            NewWindowResponse::Deny
+        })
+        // The window itself only ever shows the server (and a sign-in it started): anything
+        // else goes to the browser, so a mail cannot pass a foreign page off as the mail client.
+        .on_navigation(move |target| {
+            use std::sync::atomic::Ordering::Relaxed;
+            match links::navigation(&nav_server, target, signing_in.load(Relaxed)) {
+                links::Navigation::Stay => {
+                    if target.origin() == nav_server.origin() {
+                        signing_in.store(false, Relaxed);
+                    }
+                    true
+                }
+                links::Navigation::StartSignIn => {
+                    signing_in.store(true, Relaxed);
+                    true
+                }
+                links::Navigation::Compose(path) => {
+                    open_mail_at(&nav_app, Some(path));
+                    false
+                }
+                links::Navigation::OpenInBrowser(url) => {
+                    let _ = nav_app.opener().open_url(url.as_str(), None::<&str>);
+                    false
+                }
+                links::Navigation::Refuse => false,
+            }
+        })
+        .additional_browser_args(args)
+        // WebView2 refuses two windows on one data folder with different launch
+        // options; the settings window has its own, so this one gets a folder too.
+        .data_directory(
+            app.path()
+                .app_local_data_dir()
+                .unwrap_or_default()
+                .join("webview-plmail"),
+        )
+        .build()
+        .map_err(|e| fill(tr(ui, "err.window"), &[("e", &e.to_string())]))?;
+
+    if settings.accept_invalid_certs {
+        #[cfg(windows)]
+        certs::accept_for(&window, cert_server);
+        // Queued after the handler, on the same thread: it is attached by the time this runs.
+        let _ = window.navigate(first_page);
+    }
 
     // The menu bar stays out of sight until Alt is pressed.
     let _ = window.hide_menu();
