@@ -15,6 +15,8 @@ pub struct Client {
 pub struct Session {
     pub api_url: String,
     pub mail_accounts: Vec<MailAccount>,
+    /// Where the server pushes its changes, as a template (RFC 8620 §7.3), when it does.
+    pub event_source_url: Option<String>,
 }
 
 /// One connected mail account, as the session lists it.
@@ -159,6 +161,10 @@ impl Client {
         Ok(Session {
             api_url,
             mail_accounts,
+            event_source_url: body["eventSourceUrl"]
+                .as_str()
+                .filter(|u| !u.is_empty())
+                .map(String::from),
         })
     }
 

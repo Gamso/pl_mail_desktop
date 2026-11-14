@@ -72,7 +72,8 @@ is tested before anything is saved.
 | Server address | `https://mail.example.com` |
 | App password | Stored in the Windows Credential Manager, never in a file. Leave empty to keep the stored one. |
 | Language | Automatic (Windows), English, Deutsch, Français, Pirate English |
-| Check frequency | 60 s by default, 15 s minimum |
+| Check frequency | 60 s by default, 15 s minimum. With *instant notifications*, it is only the fallback. |
+| Notify new mail instantly | On by default: listens to the server's push (JMAP EventSource) and checks as soon as mail arrives. Each open stream takes one worker on the pl_mail server; turn it off on a small server. |
 | Self-signed certificate | Only enable for a server you trust (local network) |
 | Start with Windows | The application starts at logon and opens the mail window (it waits up to a minute for the network) |
 | Start in the tray only | With *Start with Windows*: stay in the tray at logon instead of opening the window |

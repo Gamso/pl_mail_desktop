@@ -81,7 +81,8 @@ d'application. La connexion est testée avant d'être enregistrée.
 | Adresse du serveur | `https://mail.exemple.fr` |
 | Mot de passe d'application | Stocké dans le Gestionnaire d'identifiants de Windows, jamais dans un fichier. Laisser vide pour conserver l'existant. |
 | Langue | Automatique (Windows), English, Deutsch, Français, Pirate English |
-| Fréquence de vérification | 60 s par défaut, 15 s minimum |
+| Fréquence de vérification | 60 s par défaut, 15 s minimum. Avec les *notifications immédiates*, ce n'est plus qu'un filet de sécurité. |
+| Signaler les nouveaux mails immédiatement | Activé par défaut : écoute le push du serveur (JMAP EventSource) et vérifie dès qu'un mail arrive. Chaque flux ouvert occupe un worker du serveur pl_mail ; à désactiver sur un petit serveur. |
 | Certificat auto-signé | À n'activer que pour un serveur de confiance (réseau local) |
 | Démarrer avec Windows | L'application démarre à l'ouverture de session et ouvre la fenêtre mail (elle attend le réseau jusqu'à une minute) |
 | Démarrer uniquement dans la barre système | Avec *Démarrer avec Windows* : reste dans la barre système au lieu d'ouvrir la fenêtre |

@@ -12,6 +12,7 @@ interface Settings {
   start_in_tray: boolean;
   handle_mailto: boolean;
   check_updates: boolean;
+  push: boolean;
   language: string;
 }
 type SettingsView = Settings & { has_password: boolean; ui_language: Lang };
@@ -103,6 +104,7 @@ async function loadSettings() {
   syncTrayOption();
   $<HTMLInputElement>("handle_mailto").checked = s.handle_mailto;
   $<HTMLInputElement>("check_updates").checked = s.check_updates;
+  $<HTMLInputElement>("push").checked = s.push;
   $("mailto-help").hidden = !s.handle_mailto;
   const password = $<HTMLInputElement>("app_password");
   if (s.has_password) password.dataset.saved = "1";
@@ -186,6 +188,7 @@ $("form").addEventListener("submit", async (e) => {
         start_in_tray: $<HTMLInputElement>("start_in_tray").checked,
         handle_mailto: $<HTMLInputElement>("handle_mailto").checked,
         check_updates: $<HTMLInputElement>("check_updates").checked,
+        push: $<HTMLInputElement>("push").checked,
         language: $<HTMLSelectElement>("language").value,
       },
       appPassword: password.value || null,

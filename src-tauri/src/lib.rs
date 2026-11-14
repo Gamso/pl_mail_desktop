@@ -17,6 +17,7 @@ mod links_tests;
 mod mailto;
 #[cfg(test)]
 mod mailto_tests;
+mod push;
 mod startup;
 #[cfg(test)]
 mod startup_tests;
@@ -76,6 +77,8 @@ struct Settings {
     handle_mailto: bool,
     /// Look for a newer release on GitHub at launch, then once a day.
     check_updates: bool,
+    /// Listen to the server's push (JMAP EventSource) to notify new mail at once.
+    push: bool,
     /// `auto` follows Windows; otherwise one of plMail's locale codes (`en`, `de`, `fr`, `pi`).
     language: String,
 }
@@ -90,6 +93,7 @@ impl Default for Settings {
             start_in_tray: false,
             handle_mailto: false,
             check_updates: true,
+            push: true,
             language: "auto".to_string(),
         }
     }
@@ -113,6 +117,7 @@ struct StatusInfo {
 struct Shared {
     status: Mutex<StatusInfo>,
     poller: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    push: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     check_now: Arc<Notify>,
     pending_view: std::sync::Mutex<Option<ViewRequest>>,
     pending_update: std::sync::Mutex<updates::Pending>,
@@ -471,6 +476,28 @@ async fn run_poller(app: AppHandle) {
     }
 }
 
+/// Starts listening to the server's push, when the setting allows it.
+fn start_push(app: &AppHandle) -> Option<tauri::async_runtime::JoinHandle<()>> {
+    let settings = load_settings(app);
+    if !settings.push {
+        return None;
+    }
+    let token = password(app)?;
+    let ui = Lang::resolve(&settings.language);
+    let client = Client::new(
+        &settings.server_url,
+        &token,
+        settings.accept_invalid_certs,
+        ui,
+    )
+    .ok()?;
+    let http = push::http_client(settings.accept_invalid_certs).ok()?;
+    let check_now = app.state::<Shared>().check_now.clone();
+    Some(tauri::async_runtime::spawn(push::run(
+        client, http, token, check_now,
+    )))
+}
+
 fn now_hhmm() -> String {
     chrono::Local::now().format("%H:%M").to_string()
 }
@@ -480,11 +507,13 @@ fn restart_poller(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         let shared = app.state::<Shared>();
         let mut slot = shared.poller.lock().await;
-        if let Some(h) = slot.take() {
-            h.abort();
+        let mut push_slot = shared.push.lock().await;
+        for handle in [slot.take(), push_slot.take()].into_iter().flatten() {
+            handle.abort();
         }
         if configured(&app) {
             *slot = Some(tauri::async_runtime::spawn(run_poller(app.clone())));
+            *push_slot = start_push(&app);
         }
     });
 }

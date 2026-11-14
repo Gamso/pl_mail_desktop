@@ -57,6 +57,12 @@ const T: Record<string, Entry> = {
     pi: "Scan the horizon every",
   },
   "unit.seconds": { en: "s", de: "s", fr: "s", pi: "s" },
+  "field.push": {
+    en: "Notify new mail instantly (server push)",
+    de: "Neue Mails sofort melden (Server-Push)",
+    fr: "Signaler les nouveaux mails immédiatement (push du serveur)",
+    pi: "Ring the bell the moment a bottle lands (server push)",
+  },
   "field.insecure": {
     en: "Accept a self-signed certificate",
     de: "Selbstsigniertes Zertifikat akzeptieren",

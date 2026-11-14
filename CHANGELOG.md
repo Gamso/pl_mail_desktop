@@ -14,6 +14,9 @@ All notable changes to plMail Desktop are listed here. The format follows
   errors are written there, which a release build could not report anywhere before.
 - **The unread count is shown on the tray icon**, so it stays in sight when the mail window is
   closed to the tray (the taskbar badge goes away with the window's button).
+- **Instant notifications**: the application listens to pl_mail's push (JMAP EventSource) and
+  checks as soon as mail arrives or is read elsewhere, instead of waiting for the next check. The
+  periodic check stays as a fallback. It can be switched off in the advanced settings.
 
 ### Changed
 
