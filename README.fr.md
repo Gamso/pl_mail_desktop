@@ -82,7 +82,7 @@ d'application. La connexion est testée avant d'être enregistrée.
 | Mot de passe d'application | Stocké dans le Gestionnaire d'identifiants de Windows, jamais dans un fichier. Laisser vide pour conserver l'existant. |
 | Langue | Automatique (Windows), English, Deutsch, Français, Pirate English |
 | Fréquence de vérification | 60 s par défaut, 15 s minimum. Avec les *notifications immédiates*, ce n'est plus qu'un filet de sécurité. |
-| Signaler les nouveaux mails immédiatement | Activé par défaut : écoute le push du serveur (JMAP EventSource) et vérifie dès qu'un mail arrive. Chaque flux ouvert occupe un worker du serveur pl_mail ; à désactiver sur un petit serveur. |
+| Signaler les nouveaux mails immédiatement quand la fenêtre est ouverte | Activé par défaut : tant que la fenêtre mail est affichée, écoute le push du serveur (JMAP EventSource) et vérifie dès qu'un mail arrive. Dans la barre système, c'est la fréquence de vérification qui s'applique. |
 | Certificat auto-signé | À n'activer que pour un serveur de confiance (réseau local) |
 | Démarrer avec Windows | L'application démarre à l'ouverture de session et ouvre la fenêtre mail (elle attend le réseau jusqu'à une minute) |
 | Démarrer uniquement dans la barre système | Avec *Démarrer avec Windows* : reste dans la barre système au lieu d'ouvrir la fenêtre |
@@ -109,8 +109,11 @@ Pour repartir de zéro : quitter l'application, supprimer ces trois éléments.
   non-lus de la boîte de réception.
 - Au démarrage, l'état courant est simplement mémorisé : les mails déjà présents ne déclenchent
   pas de notification.
-- Pas de connexion permanente (SSE) : chaque connexion occuperait un worker PHP du serveur, ce que
-  le guide des clients de pl_mail déconseille sur un petit serveur personnel.
+- **Push au premier plan seulement** : tant que la fenêtre mail est affichée, l'application écoute
+  aussi le push de pl_mail (JMAP EventSource, `eventSourceUrl`) et vérifie dès que l'état des mails
+  d'un compte change. Chaque flux ouvert occupe un worker PHP du serveur : comme le demande le
+  guide des clients de pl_mail, le flux est coupé dans les deux secondes quand la fenêtre passe
+  dans la barre système ou est réduite ; la vérification périodique prend alors seule le relais.
 
 ## Mises à jour
 
@@ -144,7 +147,7 @@ Pour repartir de zéro : quitter l'application, supprimer ces trois éléments.
 - Un lien `mailto:` ne remplit que le destinataire : pl_mail ne lit pas encore l'objet, le corps, Cc ni Cci.
 - Si le serveur devient injoignable alors que la fenêtre mail est déjà ouverte, c'est la page
   d'erreur du navigateur qui s'affiche.
-- Détection des nouveaux mails par interrogation : jusqu'à une minute de délai.
+- Dans la barre système, détection des nouveaux mails par interrogation : jusqu'à une minute de délai (la fréquence de vérification).
 
 ## Développement
 

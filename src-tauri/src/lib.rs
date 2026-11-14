@@ -493,8 +493,15 @@ fn start_push(app: &AppHandle) -> Option<tauri::async_runtime::JoinHandle<()>> {
     .ok()?;
     let http = push::http_client(settings.accept_invalid_certs).ok()?;
     let check_now = app.state::<Shared>().check_now.clone();
+    let app = app.clone();
+    // Only while the mail window is shown: pl_mail asks clients not to hold the stream in the
+    // background, where each one would keep a server worker busy.
+    let foreground = move || {
+        app.get_webview_window("web")
+            .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(true))
+    };
     Some(tauri::async_runtime::spawn(push::run(
-        client, http, token, check_now,
+        client, http, token, check_now, foreground,
     )))
 }
 

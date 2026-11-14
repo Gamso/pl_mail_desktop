@@ -58,10 +58,10 @@ const T: Record<string, Entry> = {
   },
   "unit.seconds": { en: "s", de: "s", fr: "s", pi: "s" },
   "field.push": {
-    en: "Notify new mail instantly (server push)",
-    de: "Neue Mails sofort melden (Server-Push)",
-    fr: "Signaler les nouveaux mails immédiatement (push du serveur)",
-    pi: "Ring the bell the moment a bottle lands (server push)",
+    en: "Notify new mail instantly while the window is open (server push)",
+    de: "Neue Mails sofort melden, solange das Fenster offen ist (Server-Push)",
+    fr: "Signaler les nouveaux mails immédiatement quand la fenêtre est ouverte (push du serveur)",
+    pi: "Ring the bell the moment a bottle lands, while the hatch be open (server push)",
   },
   "field.insecure": {
     en: "Accept a self-signed certificate",

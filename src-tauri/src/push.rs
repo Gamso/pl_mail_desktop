@@ -4,8 +4,11 @@
 //! The push only wakes the poller up; the poller still does all the reading, and keeps its own
 //! interval as a fallback, so a push that is lost or a server without push changes nothing.
 //!
-//! pl_mail holds one PHP worker per open stream and closes each one after five minutes on
-//! purpose; the client reconnects then, and backs off when the server cannot be reached.
+//! pl_mail holds one PHP worker per open stream, and its client guide asks for the stream only
+//! while the application is in the foreground. So the stream is open only while the mail window
+//! is shown (not in the tray, not minimised); the rest of the time the poller's interval does the
+//! work. The server also closes each stream after five minutes on purpose: the client reconnects
+//! then, and backs off when the server cannot be reached.
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -18,6 +21,8 @@ use crate::jmap::Client;
 const WATCHED: [&str; 2] = ["Email", "Mailbox"];
 /// How often the server is asked to send a keep-alive; the stream is dropped after a few missed.
 const PING_SECS: u64 = 30;
+/// How often we look whether the mail window is still in use.
+const WATCH_EVERY: Duration = Duration::from_secs(2);
 const FIRST_RETRY: Duration = Duration::from_secs(5);
 const MAX_RETRY: Duration = Duration::from_secs(5 * 60);
 
@@ -116,15 +121,28 @@ pub fn wants_check(known: &mut Known, data: &str, accounts: &[String]) -> bool {
     moved
 }
 
-/// Listens to the server's push for as long as the application runs, waking `check_now` when
-/// mail moves. Returns at once when the server offers no push.
-pub async fn run(client: Client, http: reqwest::Client, token: String, check_now: Arc<Notify>) {
+/// Listens to the server's push while `foreground` says the mail window is in use, waking
+/// `check_now` when mail moves. Returns at once when the server offers no push.
+pub async fn run<F>(
+    client: Client,
+    http: reqwest::Client,
+    token: String,
+    check_now: Arc<Notify>,
+    foreground: F,
+) where
+    F: Fn() -> bool + Send + Sync,
+{
     let mut known = Known::new();
     let mut retry = FIRST_RETRY;
     loop {
-        match listen(&client, &http, &token, &check_now, &mut known).await {
+        // In the tray, the poller's interval does the work: no stream is held for nothing.
+        while !foreground() {
+            tokio::time::sleep(WATCH_EVERY).await;
+        }
+        match listen(&client, &http, &token, &check_now, &mut known, &foreground).await {
             Ok(Some(())) => {
-                // The server closed the stream, as pl_mail does every five minutes.
+                // The server closed the stream (as pl_mail does every five minutes), or the
+                // window went to the background.
                 retry = FIRST_RETRY;
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
@@ -145,13 +163,14 @@ pub async fn run(client: Client, http: reqwest::Client, token: String, check_now
 }
 
 /// One connection: `Ok(None)` when there is no push to listen to, `Ok(Some(()))` when the
-/// server ended the stream.
+/// server ended the stream or the window went to the background, which drops it.
 async fn listen(
     client: &Client,
     http: &reqwest::Client,
     token: &str,
     check_now: &Notify,
     known: &mut Known,
+    foreground: &(impl Fn() -> bool + Sync),
 ) -> Result<Option<()>, String> {
     let session = client.session().await?;
     let Some(template) = session.event_source_url else {
@@ -169,14 +188,27 @@ async fn listen(
         return Err(format!("HTTP {}", response.status().as_u16()));
     }
     let mut parser = Parser::default();
-    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+    let mut watch = tokio::time::interval(WATCH_EVERY);
+    loop {
+        let chunk = tokio::select! {
+            chunk = response.chunk() => chunk.map_err(|e| e.to_string())?,
+            _ = watch.tick() => {
+                if foreground() {
+                    continue;
+                }
+                // Hand the server its worker back as soon as the window is put away.
+                return Ok(Some(()));
+            }
+        };
+        let Some(chunk) = chunk else {
+            return Ok(Some(()));
+        };
         for event in parser.feed(&String::from_utf8_lossy(&chunk)) {
             if event.name == "state" && wants_check(known, &event.data, &accounts) {
                 check_now.notify_one();
             }
         }
     }
-    Ok(Some(()))
 }
 
 /// A client for the stream: no overall time limit (the stream lasts minutes), but one on each
@@ -254,7 +286,7 @@ mod tests {
 
     /// A server whose session offers push, and whose stream sends the current state, a ping,
     /// a state that moved, then closes, as pl_mail does after its five minutes.
-    async fn push_server() -> String {
+    async fn push_server(keep_open: bool) -> String {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -291,6 +323,10 @@ mod tests {
                         )
                     };
                     let _ = socket.write_all(reply.as_bytes()).await;
+                    if keep_open {
+                        // A stream that would last its full five minutes.
+                        tokio::time::sleep(Duration::from_secs(300)).await;
+                    }
                 });
             }
         });
@@ -299,7 +335,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_moving_state_on_the_stream_wakes_the_poller_once() {
-        let base = push_server().await;
+        let base = push_server(false).await;
         let client = Client::new(&base, "token", false, crate::i18n::Lang::En).unwrap();
         let wake = Notify::new();
         let mut known = Known::new();
@@ -309,6 +345,7 @@ mod tests {
             "token",
             &wake,
             &mut known,
+            &|| true,
         )
         .await
         .unwrap();
@@ -318,6 +355,28 @@ mod tests {
             .await
             .expect("woken up");
         assert_eq!(known["7"]["Email"], "s2");
+    }
+
+    #[tokio::test]
+    async fn the_stream_is_dropped_when_the_window_is_put_away() {
+        let base = push_server(true).await;
+        let client = Client::new(&base, "token", false, crate::i18n::Lang::En).unwrap();
+        let in_use = std::sync::atomic::AtomicBool::new(true);
+        let wake = Notify::new();
+        let mut known = Known::new();
+        let http = http_client(false).unwrap();
+        let foreground = || in_use.load(std::sync::atomic::Ordering::Relaxed);
+        let listening = listen(&client, &http, "token", &wake, &mut known, &foreground);
+        let put_away = async {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            in_use.store(false, std::sync::atomic::Ordering::Relaxed);
+        };
+        let (ended, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(listening, put_away)
+        })
+        .await
+        .expect("the stream was dropped, not held for its five minutes");
+        assert_eq!(ended.unwrap(), Some(()));
     }
 
     #[test]

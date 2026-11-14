@@ -73,7 +73,7 @@ is tested before anything is saved.
 | App password | Stored in the Windows Credential Manager, never in a file. Leave empty to keep the stored one. |
 | Language | Automatic (Windows), English, Deutsch, Français, Pirate English |
 | Check frequency | 60 s by default, 15 s minimum. With *instant notifications*, it is only the fallback. |
-| Notify new mail instantly | On by default: listens to the server's push (JMAP EventSource) and checks as soon as mail arrives. Each open stream takes one worker on the pl_mail server; turn it off on a small server. |
+| Notify new mail instantly while the window is open | On by default: while the mail window is shown, listens to the server's push (JMAP EventSource) and checks as soon as mail arrives. In the tray, the check frequency applies. |
 | Self-signed certificate | Only enable for a server you trust (local network) |
 | Start with Windows | The application starts at logon and opens the mail window (it waits up to a minute for the network) |
 | Start in the tray only | With *Start with Windows*: stay in the tray at logon instead of opening the window |
@@ -100,8 +100,11 @@ To start over: quit the application and delete these three items.
   unread count.
 - At startup the current state is simply remembered: mail that is already there does not trigger a
   notification.
-- No permanent connection (SSE): each one would hold a PHP worker on the server, which pl_mail's
-  client guide advises against on a small personal server.
+- **Push only in the foreground**: while the mail window is shown, the application also listens to
+  pl_mail's push (JMAP EventSource, `eventSourceUrl`) and checks as soon as an account's mail
+  state moves. Each open stream holds a PHP worker on the server, so, as pl_mail's client guide
+  asks, the stream is dropped within two seconds of the window going to the tray or being
+  minimised; the periodic check then does the work alone.
 
 ## Updates
 
@@ -131,7 +134,7 @@ To start over: quit the application and delete these three items.
 - A `mailto:` link fills in the recipient only: pl_mail does not read the subject, body, Cc or Bcc yet.
 - If the server becomes unreachable while the mail window is already open, the browser's own error
   page is shown.
-- New mail is detected by polling: up to a minute of delay.
+- In the tray, new mail is detected by polling: up to a minute of delay (the check frequency).
 
 ## Development
 
