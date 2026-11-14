@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { applyLanguage, isLang, Lang, LANGUAGES, systemLanguage, t } from "./i18n";
+import { applyLanguage, isLang, type Lang, LANGUAGES, systemLanguage, t } from "./i18n";
 import "./styles.css";
 
 interface Settings {
@@ -12,6 +12,7 @@ interface Settings {
   start_in_tray: boolean;
   handle_mailto: boolean;
   check_updates: boolean;
+  push: boolean;
   language: string;
 }
 type SettingsView = Settings & { has_password: boolean; ui_language: Lang };
@@ -36,21 +37,20 @@ const PROJECT_URL = "https://github.com/karatektus/pl_mail";
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const views = ["settings", "about", "unreachable", "update"] as const;
 
-let statusTimer: number | undefined;
 let firstRun = true;
 let lastUpdate: UpdateInfo | undefined;
 
 function show(view: (typeof views)[number]) {
   for (const v of views) $(`view-${v}`).hidden = v !== view;
-  window.clearInterval(statusTimer);
-  if (view === "settings") {
-    refreshStatus();
-    statusTimer = window.setInterval(refreshStatus, 3000);
-  }
+  // Later changes arrive as `status` events.
+  if (view === "settings") refreshStatus();
 }
 
 async function refreshStatus() {
-  const status = await invoke<Status>("get_status");
+  renderStatus(await invoke<Status>("get_status"));
+}
+
+function renderStatus(status: Status) {
   const chip = $("status-chip");
   chip.hidden = status.kind === "none";
   chip.classList.toggle("ok", status.kind === "ok");
@@ -104,6 +104,7 @@ async function loadSettings() {
   syncTrayOption();
   $<HTMLInputElement>("handle_mailto").checked = s.handle_mailto;
   $<HTMLInputElement>("check_updates").checked = s.check_updates;
+  $<HTMLInputElement>("push").checked = s.push;
   $("mailto-help").hidden = !s.handle_mailto;
   const password = $<HTMLInputElement>("app_password");
   if (s.has_password) password.dataset.saved = "1";
@@ -187,6 +188,7 @@ $("form").addEventListener("submit", async (e) => {
         start_in_tray: $<HTMLInputElement>("start_in_tray").checked,
         handle_mailto: $<HTMLInputElement>("handle_mailto").checked,
         check_updates: $<HTMLInputElement>("check_updates").checked,
+        push: $<HTMLInputElement>("push").checked,
         language: $<HTMLSelectElement>("language").value,
       },
       appPassword: password.value || null,
@@ -241,5 +243,6 @@ listen<[number, number | null]>("update-progress", ({ payload: [done, total] }) 
   $("update-progress-text").textContent = `${percent} %`;
 });
 
+listen<Status>("status", ({ payload }) => renderStatus(payload));
 listen("view", route);
 route();

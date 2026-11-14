@@ -2,6 +2,8 @@ mod actions;
 mod altkey;
 mod badge;
 #[cfg(windows)]
+mod certs;
+#[cfg(windows)]
 mod default_app;
 mod i18n;
 #[cfg(test)]
@@ -15,14 +17,15 @@ mod links_tests;
 mod mailto;
 #[cfg(test)]
 mod mailto_tests;
+mod push;
 mod startup;
 #[cfg(test)]
 mod startup_tests;
 mod updates;
 #[cfg(test)]
 mod updates_tests;
+mod zoom;
 
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
@@ -34,6 +37,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
 use tokio::sync::{Mutex, Notify};
 
 use i18n::{Lang, fill, tr};
@@ -60,9 +64,6 @@ addEventListener('click', function (event) {
 }, true);
 "#;
 
-/// Zoom of the mail window in percent, shared by the menu entries.
-static ZOOM: AtomicI32 = AtomicI32::new(100);
-
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct Settings {
@@ -76,6 +77,8 @@ struct Settings {
     handle_mailto: bool,
     /// Look for a newer release on GitHub at launch, then once a day.
     check_updates: bool,
+    /// Listen to the server's push (JMAP EventSource) to notify new mail at once.
+    push: bool,
     /// `auto` follows Windows; otherwise one of plMail's locale codes (`en`, `de`, `fr`, `pi`).
     language: String,
 }
@@ -90,6 +93,7 @@ impl Default for Settings {
             start_in_tray: false,
             handle_mailto: false,
             check_updates: true,
+            push: true,
             language: "auto".to_string(),
         }
     }
@@ -113,9 +117,16 @@ struct StatusInfo {
 struct Shared {
     status: Mutex<StatusInfo>,
     poller: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    push: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     check_now: Arc<Notify>,
     pending_view: std::sync::Mutex<Option<ViewRequest>>,
     pending_update: std::sync::Mutex<updates::Pending>,
+    /// Held while the mail window is being opened, so two requests cannot both build it.
+    opening: Mutex<()>,
+    /// The settings, read from disk once and replaced by `save_settings`.
+    settings: std::sync::Mutex<Option<Settings>>,
+    /// The app password from the credential store, read once (`Some(None)`: there is none).
+    password: std::sync::Mutex<Option<Option<String>>>,
 }
 
 fn settings_path(app: &AppHandle) -> PathBuf {
@@ -125,18 +136,37 @@ fn settings_path(app: &AppHandle) -> PathBuf {
         .join("settings.json")
 }
 
-fn load_settings(app: &AppHandle) -> Settings {
+fn read_settings(app: &AppHandle) -> Settings {
     std::fs::read_to_string(settings_path(app))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
-fn password() -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .ok()?
-        .get_password()
-        .ok()
+/// The settings, from memory after the first read: they are asked for at every menu action,
+/// toast and status line.
+fn load_settings(app: &AppHandle) -> Settings {
+    app.state::<Shared>()
+        .settings
+        .lock()
+        .unwrap()
+        .get_or_insert_with(|| read_settings(app))
+        .clone()
+}
+
+/// The app password, from memory after the first look in the Windows credential store.
+fn password(app: &AppHandle) -> Option<String> {
+    app.state::<Shared>()
+        .password
+        .lock()
+        .unwrap()
+        .get_or_insert_with(|| {
+            keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+                .ok()?
+                .get_password()
+                .ok()
+        })
+        .clone()
 }
 
 fn lang(app: &AppHandle) -> Lang {
@@ -144,7 +174,7 @@ fn lang(app: &AppHandle) -> Lang {
 }
 
 fn configured(app: &AppHandle) -> bool {
-    password().is_some() && !load_settings(app).server_url.is_empty()
+    password(app).is_some() && !load_settings(app).server_url.is_empty()
 }
 
 fn show_window(app: &AppHandle) {
@@ -221,10 +251,16 @@ fn show_view(app: &AppHandle, view: &str, message: &str) {
 }
 
 async fn set_status(app: &AppHandle, ok: bool, text: &str) {
-    *app.state::<Shared>().status.lock().await = StatusInfo {
+    let status = StatusInfo {
         kind: if ok { "ok" } else { "error" }.to_string(),
         text: text.to_string(),
     };
+    if !ok {
+        log::warn!("check failed: {text}");
+    }
+    // The settings window shows it as it changes, instead of asking every few seconds.
+    let _ = app.emit_to("main", "status", status.clone());
+    *app.state::<Shared>().status.lock().await = status;
     if let Some(tray) = app.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(format!("{APP_NAME} — {text}")));
     }
@@ -265,7 +301,7 @@ fn toast(
         })
         .show();
     if let Err(e) = shown {
-        eprintln!("toast failed: {e}");
+        log::warn!("toast failed: {e}");
     }
 }
 
@@ -360,7 +396,7 @@ async fn check_accounts(
 
 async fn run_poller(app: AppHandle) {
     let settings = load_settings(&app);
-    let Some(token) = password() else { return };
+    let Some(token) = password(&app) else { return };
     let interval = Duration::from_secs(settings.interval_secs.max(MIN_INTERVAL));
     let ui = Lang::resolve(&settings.language);
     let client = match Client::new(
@@ -440,6 +476,35 @@ async fn run_poller(app: AppHandle) {
     }
 }
 
+/// Starts listening to the server's push, when the setting allows it.
+fn start_push(app: &AppHandle) -> Option<tauri::async_runtime::JoinHandle<()>> {
+    let settings = load_settings(app);
+    if !settings.push {
+        return None;
+    }
+    let token = password(app)?;
+    let ui = Lang::resolve(&settings.language);
+    let client = Client::new(
+        &settings.server_url,
+        &token,
+        settings.accept_invalid_certs,
+        ui,
+    )
+    .ok()?;
+    let http = push::http_client(settings.accept_invalid_certs).ok()?;
+    let check_now = app.state::<Shared>().check_now.clone();
+    let app = app.clone();
+    // Only while the mail window is shown: pl_mail asks clients not to hold the stream in the
+    // background, where each one would keep a server worker busy.
+    let foreground = move || {
+        app.get_webview_window("web")
+            .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(true))
+    };
+    Some(tauri::async_runtime::spawn(push::run(
+        client, http, token, check_now, foreground,
+    )))
+}
+
 fn now_hhmm() -> String {
     chrono::Local::now().format("%H:%M").to_string()
 }
@@ -449,11 +514,13 @@ fn restart_poller(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         let shared = app.state::<Shared>();
         let mut slot = shared.poller.lock().await;
-        if let Some(h) = slot.take() {
-            h.abort();
+        let mut push_slot = shared.push.lock().await;
+        for handle in [slot.take(), push_slot.take()].into_iter().flatten() {
+            handle.abort();
         }
         if configured(&app) {
             *slot = Some(tauri::async_runtime::spawn(run_poller(app.clone())));
+            *push_slot = start_push(&app);
         }
     });
 }
@@ -473,7 +540,7 @@ fn get_settings(app: AppHandle) -> SettingsView {
     SettingsView {
         ui_language: Lang::resolve(&settings.language).code(),
         settings,
-        has_password: password().is_some(),
+        has_password: password(&app).is_some(),
     }
 }
 
@@ -535,7 +602,7 @@ async fn save_settings(
 
     let token = match app_password.filter(|p| !p.is_empty()) {
         Some(p) => p,
-        None => password().ok_or_else(|| tr(ui, "err.need_password").to_string())?,
+        None => password(&app).ok_or_else(|| tr(ui, "err.need_password").to_string())?,
     };
     let client = Client::new(
         &settings.server_url,
@@ -554,6 +621,11 @@ async fn save_settings(
     }
     std::fs::write(&path, serde_json::to_string_pretty(&settings).unwrap())
         .map_err(|e| e.to_string())?;
+    {
+        let shared = app.state::<Shared>();
+        *shared.settings.lock().unwrap() = Some(settings.clone());
+        *shared.password.lock().unwrap() = Some(Some(token.clone()));
+    }
 
     // A development build must not point Windows' autostart entry at its own exe, which would
     // replace the installed application's entry.
@@ -579,7 +651,7 @@ async fn save_settings(
             default_app::unregister()
         };
         if let Err(e) = registered {
-            eprintln!("mailto registration failed: {e}");
+            log::warn!("mailto registration failed: {e}");
         }
     }
 
@@ -692,13 +764,17 @@ fn open_mail_at(app: &AppHandle, path: Option<String>) {
     // Windows deadlocks when a window is built from the event-loop thread.
     tauri::async_runtime::spawn(async move {
         if let Err(e) = open_mail_window(&app, path).await {
-            eprintln!("[open] failed: {e}");
+            log::warn!("could not open the mail window: {e}");
             show_view(&app, "unreachable", &e);
         }
     });
 }
 
 async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), String> {
+    // A second request (a double click on the tray icon, a toast clicked during startup) waits
+    // for the first one, then finds the window built.
+    let shared = app.state::<Shared>();
+    let _opening = shared.opening.lock().await;
     let settings = load_settings(app);
     let ui = Lang::resolve(&settings.language);
     let url = settings
@@ -719,6 +795,11 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
             .and_then(|m| m.is_visible().ok())
             .unwrap_or(false)
         {
+            // A dialog is open over the mail: it stays on top, but the page asked for (a toast's
+            // message) is still opened behind it.
+            if let Some(target) = landing {
+                let _ = w.navigate(target);
+            }
             show_window(app);
             return Ok(());
         }
@@ -733,37 +814,82 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
     }
     jmap::probe(&settings.server_url, settings.accept_invalid_certs, ui).await?;
 
-    let mut args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection");
-    if settings.accept_invalid_certs {
-        args.push_str(" --ignore-certificate-errors");
-    }
+    let args = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
     let menu = mail_menu(app, ui).map_err(|e| e.to_string())?;
+    let first_page = landing.unwrap_or(url);
+    // With a self-signed certificate, the window starts blank: the handler that accepts the
+    // server's certificate has to be in place before the server is asked for anything.
+    let start = if settings.accept_invalid_certs {
+        "about:blank"
+            .parse()
+            .map_err(|_| "about:blank".to_string())?
+    } else {
+        first_page.clone()
+    };
+    let nav_app = app.clone();
+    let nav_server = server.clone();
+    let cert_server = server.clone();
+    let signing_in = std::sync::atomic::AtomicBool::new(false);
 
-    let window =
-        WebviewWindowBuilder::new(app, "web", WebviewUrl::External(landing.unwrap_or(url)))
-            .title(APP_NAME)
-            .inner_size(1280.0, 820.0)
-            .menu(menu)
-            .initialization_script_for_all_frames(OPEN_LINKS_SCRIPT)
-            // Links in a mail ask for a window of their own; a bare window would ignore them.
-            .on_new_window(move |target, _| {
-                follow_link(&links_app, &server, &target);
-                NewWindowResponse::Deny
-            })
-            .additional_browser_args(&args)
-            // WebView2 refuses two windows on one data folder with different launch
-            // options; the settings window has its own, so this one gets a folder too.
-            .data_directory(
-                app.path()
-                    .app_local_data_dir()
-                    .unwrap_or_default()
-                    .join("webview-plmail"),
-            )
-            .build()
-            .map_err(|e| fill(tr(ui, "err.window"), &[("e", &e.to_string())]))?;
+    let window = WebviewWindowBuilder::new(app, "web", WebviewUrl::External(start))
+        .title(APP_NAME)
+        .inner_size(1280.0, 820.0)
+        .menu(menu)
+        .initialization_script_for_all_frames(OPEN_LINKS_SCRIPT)
+        // Links in a mail ask for a window of their own; a bare window would ignore them.
+        .on_new_window(move |target, _| {
+            follow_link(&links_app, &server, &target);
+            NewWindowResponse::Deny
+        })
+        // The window itself only ever shows the server (and a sign-in it started): anything
+        // else goes to the browser, so a mail cannot pass a foreign page off as the mail client.
+        .on_navigation(move |target| {
+            use std::sync::atomic::Ordering::Relaxed;
+            match links::navigation(&nav_server, target, signing_in.load(Relaxed)) {
+                links::Navigation::Stay => {
+                    if target.origin() == nav_server.origin() {
+                        signing_in.store(false, Relaxed);
+                    }
+                    true
+                }
+                links::Navigation::StartSignIn => {
+                    signing_in.store(true, Relaxed);
+                    true
+                }
+                links::Navigation::Compose(path) => {
+                    open_mail_at(&nav_app, Some(path));
+                    false
+                }
+                links::Navigation::OpenInBrowser(url) => {
+                    let _ = nav_app.opener().open_url(url.as_str(), None::<&str>);
+                    false
+                }
+                links::Navigation::Refuse => false,
+            }
+        })
+        .additional_browser_args(args)
+        // WebView2 refuses two windows on one data folder with different launch
+        // options; the settings window has its own, so this one gets a folder too.
+        .data_directory(
+            app.path()
+                .app_local_data_dir()
+                .unwrap_or_default()
+                .join("webview-plmail"),
+        )
+        .build()
+        .map_err(|e| fill(tr(ui, "err.window"), &[("e", &e.to_string())]))?;
+
+    if settings.accept_invalid_certs {
+        #[cfg(windows)]
+        certs::accept_for(&window, cert_server);
+        // Queued after the handler, on the same thread: it is attached by the time this runs.
+        let _ = window.navigate(first_page);
+    }
 
     // The menu bar stays out of sight until Alt is pressed.
     let _ = window.hide_menu();
+    // Size and position come back through the window-state plugin; the zoom is ours.
+    zoom::restore(app, &window);
     altkey::attach(&window);
     badge::apply(app);
     hide_main(app);
@@ -854,6 +980,7 @@ fn mail_menu(app: &AppHandle, ui: Lang) -> tauri::Result<Menu<tauri::Wry>> {
             &sep()?,
             &item("act:check-updates", "menu.check_updates")?,
             &item("act:data-folder", "help.data_folder")?,
+            &item("act:logs-folder", "help.logs_folder")?,
             &sep()?,
             &about,
         ],
@@ -884,6 +1011,12 @@ fn handle_menu(app: &AppHandle, id: &str) {
                 let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
             }
         }
+        "act:logs-folder" => {
+            if let Ok(dir) = app.path().app_log_dir() {
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
+            }
+        }
         _ => {
             let Some(w) = web else { return };
             match id {
@@ -891,7 +1024,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
                 // when the page being shown has no sidebar.
                 "act:new-message" => {
                     let _ = w.eval(
-                        "(document.querySelector('a[href$=\"/compose/new\"]') || { click() { location.href = '/inbox'; } }).click();",
+                        "(document.querySelector('a[href$=\"/compose/new\"]') || { click() { location.href = '/compose/new'; } }).click();",
                     );
                 }
                 // pl_mail's own, themed dialog; with shortcuts switched off it does not exist,
@@ -905,6 +1038,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
                     let _ = w.print();
                 }
                 "act:close" => {
+                    save_window_state(app);
                     let _ = w.hide();
                 }
                 "act:reload" => {
@@ -916,9 +1050,9 @@ fn handle_menu(app: &AppHandle, id: &str) {
                 "act:forward" => {
                     let _ = w.eval("history.forward();");
                 }
-                "act:zoom-in" => set_zoom(&w, ZOOM.load(Ordering::Relaxed) + 10),
-                "act:zoom-out" => set_zoom(&w, ZOOM.load(Ordering::Relaxed) - 10),
-                "act:zoom-reset" => set_zoom(&w, 100),
+                "act:zoom-in" => zoom::set(app, &w, zoom::current() + zoom::STEP),
+                "act:zoom-out" => zoom::set(app, &w, zoom::current() - zoom::STEP),
+                "act:zoom-reset" => zoom::set(app, &w, zoom::DEFAULT),
                 "act:fullscreen" => {
                     let _ = w.set_fullscreen(!w.is_fullscreen().unwrap_or(false));
                 }
@@ -945,10 +1079,18 @@ fn sync_now(app: &AppHandle) {
     });
 }
 
-fn set_zoom(w: &tauri::WebviewWindow, percent: i32) {
-    let percent = percent.clamp(50, 300);
-    ZOOM.store(percent, Ordering::Relaxed);
-    let _ = w.set_zoom(f64::from(percent) / 100.0);
+/// What the window-state plugin remembers of the mail window. The settings dialog is left out:
+/// it is always centred over the mail.
+fn window_state_flags() -> StateFlags {
+    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED
+}
+
+/// Writes the mail window's size and position to disk now. The plugin does it at exit, but the
+/// window mostly goes to the tray, and a Windows shutdown does not always let the exit run.
+fn save_window_state(app: &AppHandle) {
+    if let Err(e) = app.save_window_state(window_state_flags()) {
+        log::warn!("could not save the window state: {e}");
+    }
 }
 
 fn tray_menu(app: &AppHandle, ui: Lang) -> tauri::Result<Menu<tauri::Wry>> {
@@ -1005,7 +1147,34 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
+        .plugin(
+            // A small log in the app's log folder (Help → Open log folder): a release build has
+            // no console, so this is the only trace of what went wrong.
+            tauri_plugin_log::Builder::new()
+                .clear_targets()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("plmail-desktop".into()),
+                    },
+                ))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
+                .level(log::LevelFilter::Info)
+                // Keep the libraries' chatter out of it.
+                .level_for("reqwest", log::LevelFilter::Warn)
+                .level_for("hyper_util", log::LevelFilter::Warn)
+                .max_file_size(1_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(window_state_flags())
+                .with_denylist(&["main"])
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Shared::default())
         .invoke_handler(tauri::generate_handler![
@@ -1034,6 +1203,7 @@ pub fn run() {
                 if window.label() == "main" {
                     hide_main(window.app_handle());
                 } else {
+                    save_window_state(window.app_handle());
                     let _ = window.hide();
                 }
             }

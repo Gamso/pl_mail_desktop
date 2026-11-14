@@ -6,6 +6,22 @@ All notable changes to plMail Desktop are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The mail window remembers its size, position, maximised state and zoom** from one launch to
+  the next.
+- **A log file** (*Help → Open log folder*): failed checks, notifications, updates and window
+  errors are written there, which a release build could not report anywhere before.
+- **The unread count is shown on the tray icon**, so it stays in sight when the mail window is
+  closed to the tray (the taskbar badge goes away with the window's button).
+- **Instant notifications while the mail window is open**: the application listens to pl_mail's
+  push (JMAP EventSource) and checks as soon as mail arrives or is read elsewhere, instead of
+  waiting for the next check. In the tray it keeps checking at the set interval, as pl_mail asks
+  clients not to hold the stream in the background. It can be switched off in the advanced
+  settings.
+- **Code signing of the installer and the portable exe** (Authenticode, Azure Artifact Signing)
+  in the release workflow, once it is set up for the repository; releases stay unsigned until then.
+
 ### Changed
 
 - **Notifications are grouped across accounts**: past three new messages in one check, a single
@@ -14,6 +30,9 @@ All notable changes to plMail Desktop are listed here. The format follows
   and the server is then asked less and less often (up to every 30 minutes) instead of every minute.
 - Each check needs fewer requests: the unread count comes with the list of changes, and new
   messages are fetched in batches of 50.
+- **The installer speaks English, German and French**, following the Windows language.
+- The settings window shows the connection status as it changes instead of asking every 3 seconds,
+  and the settings and the app password are kept in memory instead of being read at every action.
 
 ### Fixed
 
@@ -21,6 +40,27 @@ All notable changes to plMail Desktop are listed here. The format follows
   application forgot where each account stood and started over from "now". It now keeps it.
 - The unread badge could drop to 0 when the count could not be read; it keeps the last known count.
 - A server answer without a new state could make a check loop forever.
+- Opening the mail window twice in quick succession (a double click on the tray icon) could show
+  "server unreachable" although the server was fine.
+- The zoom got out of step after the settings were saved (*Zoom in* jumped from 100 % to 140 %).
+- *File → New message* sent pages without a compose link to `/inbox`, which pl_mail does not
+  have; it now opens the composer directly.
+- Clicking a notification while the settings dialog was open did not open the message.
+- An update check made while offline postponed the next one by a whole day; it now tries again at
+  the next round.
+- The unread badge did not show its number on a machine where Windows is not on `C:`.
+
+### Security
+
+- **The mail window only shows the pl_mail server.** A link or a redirect to another site now
+  opens in the default browser instead of loading inside the application. A sign-in that pl_mail
+  starts itself (connecting a Gmail or Microsoft account) still runs in the window until it comes
+  back to the server.
+- **"Accept a self-signed certificate" now applies to the configured server only.** It used to
+  switch certificate checks off for every site the mail window talked to, including what a mail
+  loads.
+- The settings window has a strict Content-Security-Policy, and the Tauri API is no longer exposed
+  as a global.
 
 ## [0.3.0] - 2026-10-27
 

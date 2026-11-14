@@ -35,6 +35,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Lint the frontend
+        run: npm run lint
+
       - name: Type-check and build the frontend
         run: npm run build
 
@@ -49,3 +52,13 @@ jobs:
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Known vulnerabilities in the dependencies (RustSec). Unmaintained crates deep in Tauri's
+      # tree are only reported, not failed on.
+      - name: Rust dependency audit
+        working-directory: src-tauri
+        run: cargo audit

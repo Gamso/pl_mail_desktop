@@ -69,6 +69,7 @@ fn healthy(method: &str, path: &str, body: &str, origin: &str) -> (u16, String) 
     if method == "GET" {
         let session = json!({
             "apiUrl": format!("{origin}/jmap/api"),
+            "eventSourceUrl": format!("{origin}/jmap/eventsource?types={{types}}&closeafter={{closeafter}}&ping={{ping}}"),
             "accounts": {
                 "7": { "name": "me@example.com", "accountCapabilities": { "urn:ietf:params:jmap:mail": {} } },
                 "9": { "accountCapabilities": { "urn:ietf:params:jmap:calendars": {} } }
@@ -141,6 +142,9 @@ async fn session_lists_only_mail_accounts() {
     // The notification names the account it is about.
     assert_eq!(session.mail_accounts[0].name, "me@example.com");
     assert!(session.api_url.ends_with("/jmap/api"));
+    assert!(session.event_source_url.is_some_and(|u| {
+        u.ends_with("/jmap/eventsource?types={types}&closeafter={closeafter}&ping={ping}")
+    }));
 }
 
 #[tokio::test]

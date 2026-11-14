@@ -57,6 +57,12 @@ const T: Record<string, Entry> = {
     pi: "Scan the horizon every",
   },
   "unit.seconds": { en: "s", de: "s", fr: "s", pi: "s" },
+  "field.push": {
+    en: "Notify new mail instantly while the window is open (server push)",
+    de: "Neue Mails sofort melden, solange das Fenster offen ist (Server-Push)",
+    fr: "Signaler les nouveaux mails immédiatement quand la fenêtre est ouverte (push du serveur)",
+    pi: "Ring the bell the moment a bottle lands, while the hatch be open (server push)",
+  },
   "field.insecure": {
     en: "Accept a self-signed certificate",
     de: "Selbstsigniertes Zertifikat akzeptieren",
@@ -204,6 +210,7 @@ export function applyLanguage(lang: Lang) {
   current = lang;
   document.documentElement.lang = lang === "pi" ? "en" : lang;
   document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
-    el.textContent = t(el.dataset.i18n!, el.dataset.i18nHost ? { host: el.dataset.i18nHost } : {});
+    const key = el.dataset.i18n ?? "";
+    el.textContent = t(key, el.dataset.i18nHost ? { host: el.dataset.i18nHost } : {});
   });
 }

@@ -449,6 +449,15 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
                 "Open &data folder",
             ],
         ),
+        "help.logs_folder" => pick(
+            lang,
+            [
+                "Open &log folder",
+                "&Protokollordner öffnen",
+                "Ouvrir le dossier des &journaux",
+                "Open the ship's &log",
+            ],
+        ),
         "menu.check_updates" => pick(
             lang,
             [

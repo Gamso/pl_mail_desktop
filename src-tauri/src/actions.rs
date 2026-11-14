@@ -17,6 +17,7 @@ pub fn run(app: &AppHandle, account_id: &str, email_id: &str, action: MailAction
     let (app, account_id, email_id) = (app.clone(), account_id.to_string(), email_id.to_string());
     tauri::async_runtime::spawn(async move {
         if let Err(e) = perform(&app, &account_id, &email_id, &action).await {
+            log::warn!("notification action failed: {e}");
             let text = fill(tr(crate::lang(&app), "toast.action_failed"), &[("e", &e)]);
             crate::toast(&app, "plMail", &[text.as_str()], &[], |_, _| {});
         }
@@ -32,7 +33,7 @@ async fn perform(
 ) -> Result<(), String> {
     let settings = crate::load_settings(app);
     let ui = crate::lang(app);
-    let token = crate::password().ok_or_else(|| tr(ui, "err.need_password").to_string())?;
+    let token = crate::password(app).ok_or_else(|| tr(ui, "err.need_password").to_string())?;
     let client = Client::new(
         &settings.server_url,
         &token,

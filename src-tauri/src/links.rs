@@ -30,3 +30,47 @@ pub fn classify(server: &Url, target: &Url) -> LinkAction {
         _ => LinkAction::Ignore,
     }
 }
+
+/// What to do with a navigation of the mail window itself (a link without `target`, a redirect,
+/// a script setting `location`).
+#[derive(Debug, PartialEq)]
+pub enum Navigation {
+    /// A page of the server, or a step of a sign-in it started: let it load.
+    Stay,
+    /// An OAuth authorization page sending the user back to the server (pl_mail connecting a
+    /// Gmail or Microsoft account): let it load, and every page until we are back on the server.
+    StartSignIn,
+    /// A `mailto:` link: open a composer in pl_mail instead (the path to open).
+    Compose(String),
+    /// Another site: open it in the default browser and stay where we are.
+    OpenInBrowser(Url),
+    /// Anything else (`file:`, `ms-msdt:`, …): refused.
+    Refuse,
+}
+
+/// Decides about a navigation of the mail window. `signing_in` says whether an OAuth flow the
+/// server started is under way, in which case the provider's pages (which can span several
+/// hosts) are let through until the flow comes back to the server.
+pub fn navigation(server: &Url, target: &Url, signing_in: bool) -> Navigation {
+    match target.scheme() {
+        "mailto" => crate::mailto::compose_path(target.as_str())
+            .map_or(Navigation::Refuse, Navigation::Compose),
+        // A blank page is what a fresh window starts with; a blob made by the server's own page
+        // (an attachment it builds) belongs to it.
+        "about" => Navigation::Stay,
+        "blob" if target.origin() == server.origin() => Navigation::Stay,
+        "http" | "https" if target.origin() == server.origin() || signing_in => Navigation::Stay,
+        "http" | "https" if returns_to(server, target) => Navigation::StartSignIn,
+        "http" | "https" => Navigation::OpenInBrowser(target.clone()),
+        _ => Navigation::Refuse,
+    }
+}
+
+/// Is this an OAuth authorization request whose `redirect_uri` leads back to the server?
+fn returns_to(server: &Url, target: &Url) -> bool {
+    target
+        .query_pairs()
+        .filter(|(key, _)| key == "redirect_uri")
+        .filter_map(|(_, value)| Url::parse(&value).ok())
+        .any(|back| back.origin() == server.origin())
+}
