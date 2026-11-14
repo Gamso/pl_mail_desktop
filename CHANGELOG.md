@@ -6,6 +6,11 @@ All notable changes to plMail Desktop are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The mail window remembers its size, position, maximised state and zoom** from one launch to
+  the next.
+
 ### Changed
 
 - **Notifications are grouped across accounts**: past three new messages in one check, a single
@@ -21,6 +26,12 @@ All notable changes to plMail Desktop are listed here. The format follows
   application forgot where each account stood and started over from "now". It now keeps it.
 - The unread badge could drop to 0 when the count could not be read; it keeps the last known count.
 - A server answer without a new state could make a check loop forever.
+- Opening the mail window twice in quick succession (a double click on the tray icon) could show
+  "server unreachable" although the server was fine.
+- The zoom got out of step after the settings were saved (*Zoom in* jumped from 100 % to 140 %).
+- *File → New message* sent pages without a compose link to `/inbox`, which pl_mail does not
+  have; it now opens the composer directly.
+- Clicking a notification while the settings dialog was open did not open the message.
 
 ## [0.3.0] - 2026-10-27
 

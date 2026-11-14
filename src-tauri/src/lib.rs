@@ -21,8 +21,8 @@ mod startup_tests;
 mod updates;
 #[cfg(test)]
 mod updates_tests;
+mod zoom;
 
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
 use tokio::sync::{Mutex, Notify};
 
 use i18n::{Lang, fill, tr};
@@ -59,9 +60,6 @@ addEventListener('click', function (event) {
   window.open(link.href, '_blank');
 }, true);
 "#;
-
-/// Zoom of the mail window in percent, shared by the menu entries.
-static ZOOM: AtomicI32 = AtomicI32::new(100);
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -116,6 +114,8 @@ struct Shared {
     check_now: Arc<Notify>,
     pending_view: std::sync::Mutex<Option<ViewRequest>>,
     pending_update: std::sync::Mutex<updates::Pending>,
+    /// Held while the mail window is being opened, so two requests cannot both build it.
+    opening: Mutex<()>,
 }
 
 fn settings_path(app: &AppHandle) -> PathBuf {
@@ -699,6 +699,10 @@ fn open_mail_at(app: &AppHandle, path: Option<String>) {
 }
 
 async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), String> {
+    // A second request (a double click on the tray icon, a toast clicked during startup) waits
+    // for the first one, then finds the window built.
+    let shared = app.state::<Shared>();
+    let _opening = shared.opening.lock().await;
     let settings = load_settings(app);
     let ui = Lang::resolve(&settings.language);
     let url = settings
@@ -719,6 +723,11 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
             .and_then(|m| m.is_visible().ok())
             .unwrap_or(false)
         {
+            // A dialog is open over the mail: it stays on top, but the page asked for (a toast's
+            // message) is still opened behind it.
+            if let Some(target) = landing {
+                let _ = w.navigate(target);
+            }
             show_window(app);
             return Ok(());
         }
@@ -764,6 +773,8 @@ async fn open_mail_window(app: &AppHandle, path: Option<String>) -> Result<(), S
 
     // The menu bar stays out of sight until Alt is pressed.
     let _ = window.hide_menu();
+    // Size and position come back through the window-state plugin; the zoom is ours.
+    zoom::restore(app, &window);
     altkey::attach(&window);
     badge::apply(app);
     hide_main(app);
@@ -891,7 +902,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
                 // when the page being shown has no sidebar.
                 "act:new-message" => {
                     let _ = w.eval(
-                        "(document.querySelector('a[href$=\"/compose/new\"]') || { click() { location.href = '/inbox'; } }).click();",
+                        "(document.querySelector('a[href$=\"/compose/new\"]') || { click() { location.href = '/compose/new'; } }).click();",
                     );
                 }
                 // pl_mail's own, themed dialog; with shortcuts switched off it does not exist,
@@ -905,6 +916,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
                     let _ = w.print();
                 }
                 "act:close" => {
+                    save_window_state(app);
                     let _ = w.hide();
                 }
                 "act:reload" => {
@@ -916,9 +928,9 @@ fn handle_menu(app: &AppHandle, id: &str) {
                 "act:forward" => {
                     let _ = w.eval("history.forward();");
                 }
-                "act:zoom-in" => set_zoom(&w, ZOOM.load(Ordering::Relaxed) + 10),
-                "act:zoom-out" => set_zoom(&w, ZOOM.load(Ordering::Relaxed) - 10),
-                "act:zoom-reset" => set_zoom(&w, 100),
+                "act:zoom-in" => zoom::set(app, &w, zoom::current() + zoom::STEP),
+                "act:zoom-out" => zoom::set(app, &w, zoom::current() - zoom::STEP),
+                "act:zoom-reset" => zoom::set(app, &w, zoom::DEFAULT),
                 "act:fullscreen" => {
                     let _ = w.set_fullscreen(!w.is_fullscreen().unwrap_or(false));
                 }
@@ -945,10 +957,18 @@ fn sync_now(app: &AppHandle) {
     });
 }
 
-fn set_zoom(w: &tauri::WebviewWindow, percent: i32) {
-    let percent = percent.clamp(50, 300);
-    ZOOM.store(percent, Ordering::Relaxed);
-    let _ = w.set_zoom(f64::from(percent) / 100.0);
+/// What the window-state plugin remembers of the mail window. The settings dialog is left out:
+/// it is always centred over the mail.
+fn window_state_flags() -> StateFlags {
+    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED
+}
+
+/// Writes the mail window's size and position to disk now. The plugin does it at exit, but the
+/// window mostly goes to the tray, and a Windows shutdown does not always let the exit run.
+fn save_window_state(app: &AppHandle) {
+    if let Err(e) = app.save_window_state(window_state_flags()) {
+        eprintln!("could not save the window state: {e}");
+    }
 }
 
 fn tray_menu(app: &AppHandle, ui: Lang) -> tauri::Result<Menu<tauri::Wry>> {
@@ -1006,6 +1026,12 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(window_state_flags())
+                .with_denylist(&["main"])
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Shared::default())
         .invoke_handler(tauri::generate_handler![
@@ -1034,6 +1060,7 @@ pub fn run() {
                 if window.label() == "main" {
                     hide_main(window.app_handle());
                 } else {
+                    save_window_state(window.app_handle());
                     let _ = window.hide();
                 }
             }
