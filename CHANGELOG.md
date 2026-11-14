@@ -19,6 +19,8 @@ All notable changes to plMail Desktop are listed here. The format follows
   waiting for the next check. In the tray it keeps checking at the set interval, as pl_mail asks
   clients not to hold the stream in the background. It can be switched off in the advanced
   settings.
+- **Code signing of the installer and the portable exe** (Authenticode, Azure Artifact Signing)
+  in the release workflow, once it is set up for the repository; releases stay unsigned until then.
 
 ### Changed
 
