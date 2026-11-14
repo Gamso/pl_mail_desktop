@@ -12,6 +12,8 @@ All notable changes to plMail Desktop are listed here. The format follows
   the next.
 - **A log file** (*Help → Open log folder*): failed checks, notifications, updates and window
   errors are written there, which a release build could not report anywhere before.
+- **The unread count is shown on the tray icon**, so it stays in sight when the mail window is
+  closed to the tray (the taskbar badge goes away with the window's button).
 
 ### Changed
 

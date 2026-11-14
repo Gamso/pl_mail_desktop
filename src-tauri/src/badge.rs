@@ -181,9 +181,87 @@ fn draw(buf: &mut [u8], w: usize, h: usize, disc: Disc, n: u64) {
     }
 }
 
+/// The tray icon with the count in its bottom-right corner, as Thunderbird's. The disc covers a
+/// good part of the icon: Windows shows tray icons at 16 to 24 pixels, where a smaller one would
+/// be unreadable.
+fn with_badge(base: &[u8], w: usize, h: usize, n: u64) -> Vec<u8> {
+    let size = w.min(h) as f32;
+    // A white ring keeps the red disc apart from the icon, which is red as well.
+    let ring = (size * 0.05).max(1.0);
+    let r = size * 0.34;
+    let (cx, cy) = (w as f32 - r - ring, h as f32 - r - ring);
+    let mut badge = vec![0u8; w * h * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            let cover = (r + ring - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
+            if cover > 0.0 {
+                let i = (y * w + x) * 4;
+                badge[i..i + 4].copy_from_slice(&[255, 255, 255, (cover * 255.0) as u8]);
+            }
+        }
+    }
+    let mut disc = vec![0u8; w * h * 4];
+    draw(&mut disc, w, h, Disc { cx, cy, r }, n);
+    over(&mut badge, &disc);
+    let mut out = base.to_vec();
+    over(&mut out, &badge);
+    out
+}
+
+/// Lays `top` over `bottom` ("source over", straight alpha), in place.
+fn over(bottom: &mut [u8], top: &[u8]) {
+    for (dst, src) in bottom
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(top.as_chunks::<4>().0)
+    {
+        let sa = f32::from(src[3]) / 255.0;
+        if sa <= 0.0 {
+            continue;
+        }
+        let da = f32::from(dst[3]) / 255.0;
+        let oa = sa + da * (1.0 - sa);
+        for c in 0..3 {
+            let mixed = (f32::from(src[c]) * sa + f32::from(dst[c]) * da * (1.0 - sa)) / oa;
+            dst[c] = mixed.round() as u8;
+        }
+        dst[3] = (oa * 255.0).round() as u8;
+    }
+}
+
+/// The count last painted on the tray icon, so it is only redrawn when it changes.
+static TRAY_SHOWN: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Paints the count on the tray icon, which stays in sight when the mail window is in the tray
+/// and its taskbar button, with the overlay, is gone.
+fn apply_tray(app: &AppHandle, unread: u64) {
+    if TRAY_SHOWN.swap(unread, Ordering::Relaxed) == unread {
+        return;
+    }
+    let (Some(tray), Some(icon)) = (app.tray_by_id("main"), app.default_window_icon()) else {
+        return;
+    };
+    let image = if unread == 0 {
+        icon.clone()
+    } else {
+        let (w, h) = (icon.width(), icon.height());
+        Image::new_owned(
+            with_badge(icon.rgba(), w as usize, h as usize, unread),
+            w,
+            h,
+        )
+    };
+    if let Err(e) = tray.set_icon(Some(image)) {
+        log::warn!("could not paint the tray icon: {e}");
+    }
+}
+
 /// Records the count and paints it.
 pub fn set(app: &AppHandle, unread: u64) {
     UNREAD.store(unread, Ordering::Relaxed);
+    apply_tray(app, unread);
     apply(app);
 }
 
@@ -255,6 +333,31 @@ mod tests {
             assert!((cx - 32.0).abs() <= 2.0, "{n}: horizontal centre {cx}");
             assert!((cy - 32.0).abs() <= 2.0, "{n}: vertical centre {cy}");
         }
+    }
+
+    #[test]
+    fn the_tray_badge_sits_in_the_corner_and_leaves_the_rest_of_the_icon_alone() {
+        let size = 32;
+        // An opaque blue icon.
+        let base: Vec<u8> = [10u8, 20, 200, 255].repeat(size * size);
+        let out = with_badge(&base, size, size, 3);
+        let px = |x: usize, y: usize| &out[(y * size + x) * 4..][..4];
+        assert_eq!(px(1, 1), &[10, 20, 200, 255], "top-left untouched");
+        // The disc's centre is at (19.5, 19.5), radius 10.9, with a 1.6 px white ring outside.
+        let red = px(28, 19);
+        assert!(red[0] > 200 && red[2] < 100 && red[3] == 255, "{red:?}");
+        let ring = px(31, 19);
+        assert!(ring.iter().all(|&c| c > 200), "{ring:?}");
+    }
+
+    #[test]
+    fn the_tray_badge_shows_on_a_transparent_icon_too() {
+        let size = 16;
+        let base = vec![0u8; size * size * 4];
+        let out = with_badge(&base, size, size, 120);
+        let centre = (size - 6) * size + (size - 6);
+        assert!(out[centre * 4 + 3] > 200, "the disc is opaque");
+        assert_eq!(out[3], 0, "the corner stays transparent");
     }
 
     #[test]
