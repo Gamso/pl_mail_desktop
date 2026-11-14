@@ -286,6 +286,8 @@ fn notify(app: &AppHandle, title: &str, body: &str, target: Option<String>) {
     });
 }
 
+/// Notifies the mail one check found, all accounts together: past three messages, a single
+/// toast stands for all of them.
 fn notify_mails(app: &AppHandle, mails: &[jmap::NewMail]) {
     let ui = lang(app);
     if mails.len() > 3 {
@@ -332,6 +334,30 @@ fn notify_mails(app: &AppHandle, mails: &[jmap::NewMail]) {
     }
 }
 
+/// The longest wait between two checks while the server refuses the app password.
+const MAX_BACKOFF: Duration = Duration::from_secs(30 * 60);
+
+/// One check of every account. New mail found before an error is still handed back, so it gets
+/// notified even when a later account fails.
+async fn check_accounts(
+    client: &Client,
+    api_url: &mut String,
+    cursors: &mut Vec<AccountCursor>,
+    need_session: &mut bool,
+    found: &mut Vec<jmap::NewMail>,
+) -> Result<(), String> {
+    if *need_session {
+        let session = client.session().await?;
+        *api_url = session.api_url;
+        *cursors = jmap::merge_cursors(std::mem::take(cursors), session.mail_accounts);
+        *need_session = false;
+    }
+    for cur in cursors.iter_mut() {
+        found.extend(client.new_mail(api_url, cur).await?);
+    }
+    Ok(())
+}
+
 async fn run_poller(app: AppHandle) {
     let settings = load_settings(&app);
     let Some(token) = password() else { return };
@@ -350,59 +376,65 @@ async fn run_poller(app: AppHandle) {
 
     let mut api_url = String::new();
     let mut cursors: Vec<AccountCursor> = vec![];
-    let mut unread: u64 = 0;
+    // The session (apiUrl, accounts) is read again after an error, but the accounts keep their
+    // Email state: what arrived while the server was out of reach is still news.
+    let mut need_session = true;
+    let mut wait = interval;
+    let mut warned_unauthorized = false;
 
     loop {
-        let result: Result<usize, String> = async {
-            if cursors.is_empty() {
-                let session = client.session().await?;
-                api_url = session.api_url;
-                cursors = session
-                    .mail_accounts
-                    .into_iter()
-                    .map(|account| AccountCursor {
-                        account_id: account.id,
-                        account_name: account.name,
-                        state: None,
-                        inbox_id: None,
-                    })
-                    .collect();
-            }
-            let mut total = 0;
-            unread = 0;
-            for cur in cursors.iter_mut() {
-                let mails = client.new_mail(&api_url, cur).await?;
-                total += mails.len();
-                unread += client.unread(&api_url, cur).await.unwrap_or(0);
-                if !mails.is_empty() {
-                    notify_mails(&app, &mails);
-                }
-            }
-            Ok(total)
-        }
+        let mut found = vec![];
+        let result = check_accounts(
+            &client,
+            &mut api_url,
+            &mut cursors,
+            &mut need_session,
+            &mut found,
+        )
         .await;
+        if !found.is_empty() {
+            notify_mails(&app, &found);
+        }
 
         match result {
-            Ok(n) => {
+            Ok(()) => {
+                wait = interval;
+                warned_unauthorized = false;
+                let unread: u64 = cursors.iter().map(|c| c.unread).sum();
                 let mut text = fill(
                     tr(ui, "status.ok"),
                     &[("unread", &unread.to_string()), ("time", &now_hhmm())],
                 );
-                if n > 0 {
-                    text.push_str(&fill(tr(ui, "status.new"), &[("n", &n.to_string())]));
+                if !found.is_empty() {
+                    text.push_str(&fill(
+                        tr(ui, "status.new"),
+                        &[("n", &found.len().to_string())],
+                    ));
                 }
                 badge::set(&app, unread);
                 set_status(&app, true, &text).await;
             }
             Err(e) => {
-                // Forget the session so the next round re-reads apiUrl and accounts.
-                cursors.clear();
+                need_session = true;
+                if jmap::is_unauthorized(ui, &e) {
+                    // Asking again every minute will not bring the password back: say it once,
+                    // then ask less and less often until the settings are saved again.
+                    if !warned_unauthorized {
+                        warned_unauthorized = true;
+                        toast(&app, &e, &[tr(ui, "toast.unauthorized")], &[], |app, _| {
+                            show_view(app, "settings", "")
+                        });
+                    }
+                    wait = (wait * 2).min(MAX_BACKOFF);
+                } else {
+                    wait = interval;
+                }
                 set_status(&app, false, &e).await;
             }
         }
 
         tokio::select! {
-            _ = tokio::time::sleep(interval) => {}
+            _ = tokio::time::sleep(wait) => {}
             _ = check_now.notified() => {}
         }
     }

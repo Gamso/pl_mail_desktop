@@ -5,7 +5,7 @@ use tokio::{
 };
 
 use crate::i18n::Lang;
-use crate::jmap::{AccountCursor, Client, probe};
+use crate::jmap::{AccountCursor, Client, MailAccount, merge_cursors, probe};
 
 type Answer = fn(&str, &str, &str, &str) -> (u16, String);
 
@@ -79,11 +79,20 @@ fn healthy(method: &str, path: &str, body: &str, origin: &str) -> (u16, String) 
     assert!(path.ends_with("/jmap/api"));
     let call = |name: &str| body.contains(&format!("\"{name}\""));
     let response = if call("Email/changes") {
-        json!([["Email/changes", { "newState": "s2", "created": ["a", "b", "c"], "hasMoreChanges": false }, "c"]])
+        let mut answers = vec![
+            json!(["Email/changes", { "newState": "s2", "created": ["a", "b", "c"], "hasMoreChanges": false }, "c"]),
+        ];
+        // The unread count travels in the same request.
+        if call("Mailbox/get") {
+            answers.push(
+                json!(["Mailbox/get", { "list": [{ "id": "inbox1", "unreadEmails": 4 }] }, "u"]),
+            );
+        }
+        json!(answers)
     } else if call("Email/get") && body.contains("\"ids\":[]") {
         json!([
             ["Email/get", { "state": "s1", "list": [] }, "e"],
-            ["Mailbox/get", { "list": [{ "id": "inbox1", "role": "inbox" }, { "id": "box2", "role": null }] }, "m"]
+            ["Mailbox/get", { "list": [{ "id": "inbox1", "role": "inbox", "unreadEmails": 3 }, { "id": "box2", "role": null }] }, "m"]
         ])
     } else if call("Email/get") {
         json!([["Email/get", { "list": [
@@ -106,6 +115,23 @@ fn client(base: &str) -> Client {
     Client::new(base, "plmail_token", false, Lang::En).unwrap()
 }
 
+fn cursor() -> AccountCursor {
+    AccountCursor::new(MailAccount {
+        id: "7".into(),
+        name: "me@example.com".into(),
+    })
+}
+
+/// A cursor that already went through its first check.
+fn known_cursor() -> AccountCursor {
+    AccountCursor {
+        state: Some("s1".into()),
+        inbox_id: Some("inbox1".into()),
+        unread: 2,
+        ..cursor()
+    }
+}
+
 #[tokio::test]
 async fn session_lists_only_mail_accounts() {
     let base = serve(healthy).await;
@@ -122,12 +148,7 @@ async fn only_unread_inbox_mail_is_reported() {
     let base = serve(healthy).await;
     let client = client(&base);
     let session = client.session().await.unwrap();
-    let mut cursor = AccountCursor {
-        account_id: "7".into(),
-        account_name: "me@example.com".into(),
-        state: None,
-        inbox_id: None,
-    };
+    let mut cursor = cursor();
 
     // The first pass only records where we stand.
     assert!(
@@ -139,6 +160,7 @@ async fn only_unread_inbox_mail_is_reported() {
     );
     assert_eq!(cursor.state.as_deref(), Some("s1"));
     assert_eq!(cursor.inbox_id.as_deref(), Some("inbox1"));
+    assert_eq!(cursor.unread, 3);
 
     let mails = client
         .new_mail(&session.api_url, &mut cursor)
@@ -151,7 +173,7 @@ async fn only_unread_inbox_mail_is_reported() {
     assert_eq!(mails[0].from, "Alice");
     assert_eq!(mails[0].subject, "Hello");
     assert_eq!(cursor.state.as_deref(), Some("s2"));
-    assert_eq!(client.unread(&session.api_url, &cursor).await.unwrap(), 4);
+    assert_eq!(cursor.unread, 4);
 }
 
 #[tokio::test]
@@ -234,4 +256,113 @@ async fn a_refusal_from_the_server_is_reported() {
     assert!(error.contains("forbidden"), "{error}");
     let error = client.mark_read(&api, "9", "42").await.unwrap_err();
     assert!(error.contains("unexpected request"), "{error}");
+}
+
+#[test]
+fn a_new_session_keeps_the_state_of_the_accounts_it_knew() {
+    let old = vec![
+        AccountCursor {
+            account_name: "old name".into(),
+            ..known_cursor()
+        },
+        AccountCursor::new(MailAccount {
+            id: "8".into(),
+            name: "gone@example.com".into(),
+        }),
+    ];
+    let accounts = vec![
+        MailAccount {
+            id: "9".into(),
+            name: "new@example.com".into(),
+        },
+        MailAccount {
+            id: "7".into(),
+            name: "me@example.com".into(),
+        },
+    ];
+    let merged = merge_cursors(old, accounts);
+    assert_eq!(merged.len(), 2, "the account that is gone is dropped");
+    assert_eq!(merged[0].account_id, "9");
+    assert_eq!(merged[0].state, None, "a new account starts from now");
+    assert_eq!(merged[1].account_id, "7");
+    assert_eq!(merged[1].state.as_deref(), Some("s1"));
+    assert_eq!(merged[1].unread, 2);
+    assert_eq!(merged[1].account_name, "me@example.com");
+}
+
+#[tokio::test]
+async fn a_state_that_does_not_move_ends_the_changes_loop() {
+    // Claims more changes forever, without ever giving a new state.
+    let base = serve(|method, path, body, origin| {
+        if method == "GET" || !body.contains("Email/changes") {
+            return healthy(method, path, body, origin);
+        }
+        let answer = json!([["Email/changes", { "created": [], "hasMoreChanges": true }, "c"]]);
+        (200, json!({ "methodResponses": answer }).to_string())
+    })
+    .await;
+    let client = client(&base);
+    let api = client.session().await.unwrap().api_url;
+    let mut cursor = known_cursor();
+    let mails = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        client.new_mail(&api, &mut cursor),
+    )
+    .await
+    .expect("the loop ends")
+    .unwrap();
+    assert!(mails.is_empty());
+    assert_eq!(cursor.state.as_deref(), Some("s1"));
+}
+
+#[tokio::test]
+async fn a_failed_fetch_leaves_the_state_for_the_next_check() {
+    let base = serve(|method, path, body, origin| {
+        if method == "POST" && body.contains("\"Email/get\"") && !body.contains("\"ids\":[]") {
+            return (500, "{}".to_string());
+        }
+        healthy(method, path, body, origin)
+    })
+    .await;
+    let client = client(&base);
+    let api = client.session().await.unwrap().api_url;
+    let mut cursor = known_cursor();
+    assert!(client.new_mail(&api, &mut cursor).await.is_err());
+    assert_eq!(
+        cursor.state.as_deref(),
+        Some("s1"),
+        "the messages are asked about again next time"
+    );
+}
+
+#[tokio::test]
+async fn created_messages_are_fetched_in_chunks() {
+    let base = serve(|method, path, body, origin| {
+        if method == "GET" {
+            return healthy(method, path, body, origin);
+        }
+        let answer = if body.contains("Email/changes") {
+            let created: Vec<String> = (0..120).map(|i| i.to_string()).collect();
+            json!([["Email/changes", { "newState": "s2", "created": created, "hasMoreChanges": false }, "c"]])
+        } else {
+            let request: serde_json::Value = serde_json::from_str(body).unwrap();
+            let ids = request["methodCalls"][0][1]["ids"].as_array().unwrap().len();
+            assert!(ids <= 50, "{ids} ids in one Email/get");
+            json!([["Email/get", { "list": [] }, "g"]])
+        };
+        (200, json!({ "methodResponses": answer }).to_string())
+    })
+    .await;
+    let client = client(&base);
+    let api = client.session().await.unwrap().api_url;
+    let mut cursor = known_cursor();
+    client.new_mail(&api, &mut cursor).await.unwrap();
+    assert_eq!(cursor.state.as_deref(), Some("s2"));
+}
+
+#[test]
+fn an_unauthorized_error_is_recognised() {
+    let error = crate::i18n::tr(Lang::Fr, "err.unauthorized");
+    assert!(crate::jmap::is_unauthorized(Lang::Fr, error));
+    assert!(!crate::jmap::is_unauthorized(Lang::Fr, "HTTP 500"));
 }

@@ -33,12 +33,62 @@ pub struct NewMail {
     pub subject: String,
 }
 
-/// Where one account stands: the Email state we last saw and its Inbox binding id.
+/// Where one account stands: the Email state we last saw, its Inbox id and its unread count.
+#[derive(Debug)]
 pub struct AccountCursor {
     pub account_id: String,
     pub account_name: String,
     pub state: Option<String>,
     pub inbox_id: Option<String>,
+    /// Unread messages in the Inbox at the last successful check.
+    pub unread: u64,
+}
+
+impl AccountCursor {
+    pub fn new(account: MailAccount) -> Self {
+        Self {
+            account_id: account.id,
+            account_name: account.name,
+            state: None,
+            inbox_id: None,
+            unread: 0,
+        }
+    }
+}
+
+/// Lines up the accounts a fresh session lists with the cursors we already had: an account we
+/// knew keeps its Email state, so mail that arrived while the server could not be reached is
+/// still reported; a new account starts from now; an account that is gone is dropped.
+pub fn merge_cursors(
+    mut old: Vec<AccountCursor>,
+    accounts: Vec<MailAccount>,
+) -> Vec<AccountCursor> {
+    accounts
+        .into_iter()
+        .map(
+            |account| match old.iter().position(|c| c.account_id == account.id) {
+                Some(i) => {
+                    let mut cur = old.swap_remove(i);
+                    cur.account_name = account.name;
+                    cur
+                }
+                None => AccountCursor::new(account),
+            },
+        )
+        .collect()
+}
+
+/// Is this error the server refusing the app password?
+pub fn is_unauthorized(lang: Lang, error: &str) -> bool {
+    error == tr(lang, "err.unauthorized")
+}
+
+/// `Email/get` asks for at most this many messages at once (servers cap `maxObjectsInGet`).
+const GET_CHUNK: usize = 50;
+
+/// The answer to the call with this id, out of a JMAP response.
+fn answer<'a>(resp: &'a [Value], call_id: &str) -> Option<&'a Value> {
+    resp.iter().find(|r| r[2] == call_id)
 }
 
 impl Client {
@@ -151,47 +201,24 @@ impl Client {
                 api_url,
                 vec![
                     json!(["Email/get", { "accountId": id, "ids": [] }, "e"]),
-                    json!(["Mailbox/get", { "accountId": id, "properties": ["role"] }, "m"]),
+                    json!(["Mailbox/get", { "accountId": id, "properties": ["role", "unreadEmails"] }, "m"]),
                 ],
             )
             .await?;
-        cur.state = resp
-            .iter()
-            .find(|r| r[0] == "Email/get")
+        cur.state = answer(&resp, "e")
             .and_then(|r| r[1]["state"].as_str())
             .map(String::from);
-        cur.inbox_id = resp
-            .iter()
-            .find(|r| r[0] == "Mailbox/get")
+        let inbox = answer(&resp, "m")
             .and_then(|r| r[1]["list"].as_array())
-            .and_then(|l| l.iter().find(|m| m["role"] == "inbox"))
-            .and_then(|m| m["id"].as_str())
-            .map(String::from);
+            .and_then(|l| l.iter().find(|m| m["role"] == "inbox"));
+        cur.inbox_id = inbox.and_then(|m| m["id"].as_str()).map(String::from);
+        cur.unread = inbox.and_then(|m| m["unreadEmails"].as_u64()).unwrap_or(0);
         Ok(())
     }
 
-    /// Unread conversations in the Inbox, as the server counts them.
-    pub async fn unread(&self, api_url: &str, cur: &AccountCursor) -> Result<u64, String> {
-        let Some(inbox) = cur.inbox_id.as_deref() else {
-            return Ok(0);
-        };
-        let resp = self
-            .call(
-                api_url,
-                vec![json!(["Mailbox/get", {
-                    "accountId": cur.account_id,
-                    "ids": [inbox],
-                    "properties": ["unreadEmails"]
-                }, "u"])],
-            )
-            .await?;
-        Ok(resp
-            .first()
-            .and_then(|r| r[1]["list"][0]["unreadEmails"].as_u64())
-            .unwrap_or(0))
-    }
-
-    /// Unread mail that landed in the Inbox since the last call.
+    /// Unread mail that landed in the Inbox since the last call. The Inbox's unread count is
+    /// read in the same request and kept in the cursor; when the request fails, the cursor keeps
+    /// the count and the state it had.
     pub async fn new_mail(
         &self,
         api_url: &str,
@@ -203,14 +230,27 @@ impl Client {
         };
         let id = cur.account_id.clone();
         let mut created: Vec<String> = vec![];
+        let mut first = true;
         loop {
-            let resp = self
-                .call(
-                    api_url,
-                    vec![json!(["Email/changes", { "accountId": id, "sinceState": since, "maxChanges": 50 }, "c"])],
-                )
-                .await?;
-            let Some(r) = resp.first() else {
+            let mut calls = vec![
+                json!(["Email/changes", { "accountId": id, "sinceState": since, "maxChanges": 50 }, "c"]),
+            ];
+            if let Some(inbox) = cur.inbox_id.as_deref().filter(|_| first) {
+                calls.push(json!(["Mailbox/get", {
+                    "accountId": id,
+                    "ids": [inbox],
+                    "properties": ["unreadEmails"]
+                }, "u"]));
+            }
+            let resp = self.call(api_url, calls).await?;
+            if let Some(unread) = answer(&resp, "u")
+                .filter(|r| r[0] == "Mailbox/get")
+                .and_then(|r| r[1]["list"][0]["unreadEmails"].as_u64())
+            {
+                cur.unread = unread;
+            }
+            first = false;
+            let Some(r) = answer(&resp, "c") else {
                 return Ok(vec![]);
             };
             if r[0] == "error" {
@@ -225,31 +265,42 @@ impl Client {
                     .flatten()
                     .filter_map(|v| v.as_str().map(String::from)),
             );
-            since = r[1]["newState"].as_str().unwrap_or(&since).to_string();
-            cur.state = Some(since.clone());
+            // A state that does not move would ask the same question forever.
+            let Some(next) = r[1]["newState"].as_str().filter(|s| *s != since) else {
+                break;
+            };
+            since = next.to_string();
             if r[1]["hasMoreChanges"] != true {
                 break;
             }
         }
         if created.is_empty() {
+            cur.state = Some(since);
             return Ok(vec![]);
         }
 
-        let resp = self
-            .call(
-                api_url,
-                vec![json!(["Email/get", {
-                    "accountId": id,
-                    "ids": created,
-                    "properties": ["from", "subject", "keywords", "mailboxIds"]
-                }, "g"])],
-            )
-            .await?;
-        let list = resp
-            .first()
-            .and_then(|r| r[1]["list"].as_array())
-            .cloned()
-            .unwrap_or_default();
+        let mut list: Vec<Value> = vec![];
+        for ids in created.chunks(GET_CHUNK) {
+            let resp = self
+                .call(
+                    api_url,
+                    vec![json!(["Email/get", {
+                        "accountId": id,
+                        "ids": ids,
+                        "properties": ["from", "subject", "keywords", "mailboxIds"]
+                    }, "g"])],
+                )
+                .await?;
+            list.extend(
+                answer(&resp, "g")
+                    .and_then(|r| r[1]["list"].as_array())
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+        }
+        // Only now: a request that failed above leaves the state where it was, so the same
+        // messages are asked about again at the next check instead of being lost.
+        cur.state = Some(since);
         let inbox = cur.inbox_id.as_deref();
         let (account_id, account_name) = (cur.account_id.clone(), cur.account_name.clone());
         Ok(list
