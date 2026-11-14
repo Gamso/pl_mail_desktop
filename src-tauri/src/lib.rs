@@ -118,6 +118,10 @@ struct Shared {
     pending_update: std::sync::Mutex<updates::Pending>,
     /// Held while the mail window is being opened, so two requests cannot both build it.
     opening: Mutex<()>,
+    /// The settings, read from disk once and replaced by `save_settings`.
+    settings: std::sync::Mutex<Option<Settings>>,
+    /// The app password from the credential store, read once (`Some(None)`: there is none).
+    password: std::sync::Mutex<Option<Option<String>>>,
 }
 
 fn settings_path(app: &AppHandle) -> PathBuf {
@@ -127,18 +131,37 @@ fn settings_path(app: &AppHandle) -> PathBuf {
         .join("settings.json")
 }
 
-fn load_settings(app: &AppHandle) -> Settings {
+fn read_settings(app: &AppHandle) -> Settings {
     std::fs::read_to_string(settings_path(app))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
-fn password() -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .ok()?
-        .get_password()
-        .ok()
+/// The settings, from memory after the first read: they are asked for at every menu action,
+/// toast and status line.
+fn load_settings(app: &AppHandle) -> Settings {
+    app.state::<Shared>()
+        .settings
+        .lock()
+        .unwrap()
+        .get_or_insert_with(|| read_settings(app))
+        .clone()
+}
+
+/// The app password, from memory after the first look in the Windows credential store.
+fn password(app: &AppHandle) -> Option<String> {
+    app.state::<Shared>()
+        .password
+        .lock()
+        .unwrap()
+        .get_or_insert_with(|| {
+            keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+                .ok()?
+                .get_password()
+                .ok()
+        })
+        .clone()
 }
 
 fn lang(app: &AppHandle) -> Lang {
@@ -146,7 +169,7 @@ fn lang(app: &AppHandle) -> Lang {
 }
 
 fn configured(app: &AppHandle) -> bool {
-    password().is_some() && !load_settings(app).server_url.is_empty()
+    password(app).is_some() && !load_settings(app).server_url.is_empty()
 }
 
 fn show_window(app: &AppHandle) {
@@ -223,10 +246,16 @@ fn show_view(app: &AppHandle, view: &str, message: &str) {
 }
 
 async fn set_status(app: &AppHandle, ok: bool, text: &str) {
-    *app.state::<Shared>().status.lock().await = StatusInfo {
+    let status = StatusInfo {
         kind: if ok { "ok" } else { "error" }.to_string(),
         text: text.to_string(),
     };
+    if !ok {
+        log::warn!("check failed: {text}");
+    }
+    // The settings window shows it as it changes, instead of asking every few seconds.
+    let _ = app.emit_to("main", "status", status.clone());
+    *app.state::<Shared>().status.lock().await = status;
     if let Some(tray) = app.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(format!("{APP_NAME} — {text}")));
     }
@@ -267,7 +296,7 @@ fn toast(
         })
         .show();
     if let Err(e) = shown {
-        eprintln!("toast failed: {e}");
+        log::warn!("toast failed: {e}");
     }
 }
 
@@ -362,7 +391,7 @@ async fn check_accounts(
 
 async fn run_poller(app: AppHandle) {
     let settings = load_settings(&app);
-    let Some(token) = password() else { return };
+    let Some(token) = password(&app) else { return };
     let interval = Duration::from_secs(settings.interval_secs.max(MIN_INTERVAL));
     let ui = Lang::resolve(&settings.language);
     let client = match Client::new(
@@ -475,7 +504,7 @@ fn get_settings(app: AppHandle) -> SettingsView {
     SettingsView {
         ui_language: Lang::resolve(&settings.language).code(),
         settings,
-        has_password: password().is_some(),
+        has_password: password(&app).is_some(),
     }
 }
 
@@ -537,7 +566,7 @@ async fn save_settings(
 
     let token = match app_password.filter(|p| !p.is_empty()) {
         Some(p) => p,
-        None => password().ok_or_else(|| tr(ui, "err.need_password").to_string())?,
+        None => password(&app).ok_or_else(|| tr(ui, "err.need_password").to_string())?,
     };
     let client = Client::new(
         &settings.server_url,
@@ -556,6 +585,11 @@ async fn save_settings(
     }
     std::fs::write(&path, serde_json::to_string_pretty(&settings).unwrap())
         .map_err(|e| e.to_string())?;
+    {
+        let shared = app.state::<Shared>();
+        *shared.settings.lock().unwrap() = Some(settings.clone());
+        *shared.password.lock().unwrap() = Some(Some(token.clone()));
+    }
 
     // A development build must not point Windows' autostart entry at its own exe, which would
     // replace the installed application's entry.
@@ -581,7 +615,7 @@ async fn save_settings(
             default_app::unregister()
         };
         if let Err(e) = registered {
-            eprintln!("mailto registration failed: {e}");
+            log::warn!("mailto registration failed: {e}");
         }
     }
 
@@ -694,7 +728,7 @@ fn open_mail_at(app: &AppHandle, path: Option<String>) {
     // Windows deadlocks when a window is built from the event-loop thread.
     tauri::async_runtime::spawn(async move {
         if let Err(e) = open_mail_window(&app, path).await {
-            eprintln!("[open] failed: {e}");
+            log::warn!("could not open the mail window: {e}");
             show_view(&app, "unreachable", &e);
         }
     });
@@ -910,6 +944,7 @@ fn mail_menu(app: &AppHandle, ui: Lang) -> tauri::Result<Menu<tauri::Wry>> {
             &sep()?,
             &item("act:check-updates", "menu.check_updates")?,
             &item("act:data-folder", "help.data_folder")?,
+            &item("act:logs-folder", "help.logs_folder")?,
             &sep()?,
             &about,
         ],
@@ -937,6 +972,12 @@ fn handle_menu(app: &AppHandle, id: &str) {
         "act:check-updates" => updates::check_manually(app),
         "act:data-folder" => {
             if let Ok(dir) = app.path().app_config_dir() {
+                let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
+            }
+        }
+        "act:logs-folder" => {
+            if let Ok(dir) = app.path().app_log_dir() {
+                let _ = std::fs::create_dir_all(&dir);
                 let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
             }
         }
@@ -1012,7 +1053,7 @@ fn window_state_flags() -> StateFlags {
 /// window mostly goes to the tray, and a Windows shutdown does not always let the exit run.
 fn save_window_state(app: &AppHandle) {
     if let Err(e) = app.save_window_state(window_state_flags()) {
-        eprintln!("could not save the window state: {e}");
+        log::warn!("could not save the window state: {e}");
     }
 }
 
@@ -1070,6 +1111,27 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
+        .plugin(
+            // A small log in the app's log folder (Help → Open log folder): a release build has
+            // no console, so this is the only trace of what went wrong.
+            tauri_plugin_log::Builder::new()
+                .clear_targets()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("plmail-desktop".into()),
+                    },
+                ))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
+                .level(log::LevelFilter::Info)
+                // Keep the libraries' chatter out of it.
+                .level_for("reqwest", log::LevelFilter::Warn)
+                .level_for("hyper_util", log::LevelFilter::Warn)
+                .max_file_size(1_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_window_state::Builder::new()

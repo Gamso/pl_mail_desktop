@@ -10,6 +10,8 @@ All notable changes to plMail Desktop are listed here. The format follows
 
 - **The mail window remembers its size, position, maximised state and zoom** from one launch to
   the next.
+- **A log file** (*Help → Open log folder*): failed checks, notifications, updates and window
+  errors are written there, which a release build could not report anywhere before.
 
 ### Changed
 
@@ -19,6 +21,9 @@ All notable changes to plMail Desktop are listed here. The format follows
   and the server is then asked less and less often (up to every 30 minutes) instead of every minute.
 - Each check needs fewer requests: the unread count comes with the list of changes, and new
   messages are fetched in batches of 50.
+- **The installer speaks English, German and French**, following the Windows language.
+- The settings window shows the connection status as it changes instead of asking every 3 seconds,
+  and the settings and the app password are kept in memory instead of being read at every action.
 
 ### Fixed
 
@@ -32,6 +37,9 @@ All notable changes to plMail Desktop are listed here. The format follows
 - *File → New message* sent pages without a compose link to `/inbox`, which pl_mail does not
   have; it now opens the composer directly.
 - Clicking a notification while the settings dialog was open did not open the message.
+- An update check made while offline postponed the next one by a whole day; it now tries again at
+  the next round.
+- The unread badge did not show its number on a machine where Windows is not on `C:`.
 
 ### Security
 

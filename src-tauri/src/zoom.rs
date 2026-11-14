@@ -49,7 +49,7 @@ pub fn set(app: &AppHandle, window: &WebviewWindow, percent: i32) {
             let _ = std::fs::create_dir_all(dir);
         }
         if let Err(e) = std::fs::write(&path, format!("{{\"zoom\":{percent}}}")) {
-            eprintln!("could not save the zoom: {e}");
+            log::warn!("could not save the zoom: {e}");
         }
     }
 }

@@ -53,8 +53,11 @@
       "nsis": {
         "installMode": "currentUser",
         "languages": [
+          "English",
+          "German",
           "French"
-        ]
+        ],
+        "displayLanguageSelector": false
       }
     },
     "createUpdaterArtifacts": true

@@ -26,7 +26,11 @@ const BITMAP: [[u8; 5]; 10] = [
 fn font_bytes() -> Option<&'static [u8]> {
     static BYTES: OnceLock<Option<Vec<u8>>> = OnceLock::new();
     BYTES
-        .get_or_init(|| std::fs::read(r"C:\Windows\Fonts\segoeuib.ttf").ok())
+        .get_or_init(|| {
+            // Windows is not always on C:.
+            let windows = std::env::var_os("WINDIR").unwrap_or_else(|| r"C:\Windows".into());
+            std::fs::read(std::path::Path::new(&windows).join(r"Fonts\segoeuib.ttf")).ok()
+        })
         .as_deref()
 }
 

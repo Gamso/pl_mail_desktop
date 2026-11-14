@@ -48,11 +48,11 @@ pub fn accept_for(window: &WebviewWindow, server: Url) {
             core.add_ServerCertificateErrorDetected(&handler, &mut token)
         })();
         if let Err(e) = result {
-            eprintln!("could not watch certificate errors: {e}");
+            log::error!("could not watch certificate errors: {e}");
         }
     });
     if let Err(e) = attached {
-        eprintln!("could not reach the web view: {e}");
+        log::error!("could not reach the web view: {e}");
     }
 }
 

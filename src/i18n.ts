@@ -204,6 +204,7 @@ export function applyLanguage(lang: Lang) {
   current = lang;
   document.documentElement.lang = lang === "pi" ? "en" : lang;
   document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
-    el.textContent = t(el.dataset.i18n!, el.dataset.i18nHost ? { host: el.dataset.i18nHost } : {});
+    const key = el.dataset.i18n ?? "";
+    el.textContent = t(key, el.dataset.i18nHost ? { host: el.dataset.i18nHost } : {});
   });
 }

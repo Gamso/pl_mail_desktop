@@ -154,11 +154,21 @@ async fn fetch(app: &AppHandle) -> Result<Option<Update>, String> {
 /// Looks for an update. A manual check always answers in the dialog; an automatic one speaks
 /// only when there is something new, and stays silent about network trouble.
 async fn run_check(app: &AppHandle, manual: bool) {
-    let mut memory = load_memory(app);
-    memory.last_check = now();
-    save_memory(app, &memory);
+    let memory = load_memory(app);
+    let result = fetch(app).await;
+    // Only a check that reached GitHub counts: offline at launch, the next round tries again
+    // instead of waiting a whole day.
+    if result.is_ok() {
+        save_memory(
+            app,
+            &Memory {
+                last_check: now(),
+                ..load_memory(app)
+            },
+        );
+    }
 
-    match fetch(app).await {
+    match result {
         Ok(Some(update)) if should_offer(&update.version, &memory.skipped, manual) => {
             let mut info = base_info(app, "available");
             info.version = update.version.clone();
@@ -196,7 +206,7 @@ async fn run_check(app: &AppHandle, manual: bool) {
             set_info(app, info, None);
             crate::show_view(app, "update", "");
         }
-        Err(e) => eprintln!("update check failed: {e}"),
+        Err(e) => log::warn!("update check failed: {e}"),
         Ok(_) => {}
     }
 }
