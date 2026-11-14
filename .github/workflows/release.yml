@@ -9,6 +9,11 @@ name: Release
 # which the updater never offers.
 #
 # Repository secrets needed: TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+#
+# Optional, to sign the installer and the exe (Authenticode, Azure Artifact Signing; README, "Code
+# signing"): secrets AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID and variables
+# AZURE_ARTIFACT_SIGNING_ENDPOINT, AZURE_ARTIFACT_SIGNING_ACCOUNT,
+# AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE. Without all six, the release is built unsigned.
 on:
   push:
     tags: ['v*']
@@ -36,11 +41,48 @@ jobs:
             throw "The TAURI_SIGNING_PRIVATE_KEY secret is missing: the updater could not verify this release."
           }
 
+      # Authenticode signing with Azure Artifact Signing, when it is set up (see README, "Code
+      # signing"). Without it the build goes on unsigned, as before. Tauri runs the sign command on
+      # the executable and on the installer before it signs the installer for the updater, so the
+      # updater signature covers the Authenticode-signed file.
+      - name: Decide whether to sign the executables
+        id: sign
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+        run: |
+          $needed = @($env:AZURE_CLIENT_ID, $env:AZURE_CLIENT_SECRET, $env:AZURE_TENANT_ID, $env:ENDPOINT, $env:ACCOUNT, $env:PROFILE)
+          if ($needed | Where-Object { [string]::IsNullOrEmpty($_) }) {
+            Write-Host "::notice::Code signing is not set up: the installer and the exe are not signed."
+            "enabled=false" >> $env:GITHUB_OUTPUT
+            "args=" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $config = @{ bundle = @{ windows = @{ signCommand = @{
+            cmd = "artifact-signing-cli"
+            args = @("-e", $env:ENDPOINT, "-d", "plMail Desktop", "%1")
+          } } } }
+          $path = Join-Path $env:RUNNER_TEMP "tauri.signing.conf.json"
+          $config | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8NoBOM $path
+          "enabled=true" >> $env:GITHUB_OUTPUT
+          # The runner's temp path has no spaces, and tauri-action splits `args` on them.
+          "args=--config $path" >> $env:GITHUB_OUTPUT
+
+      - name: Install the signing tool
+        if: steps.sign.outputs.enabled == 'true'
+        run: cargo install artifact-signing-cli --version 0.12.0 --locked
+
       - name: Take the release notes from CHANGELOG.md
         id: notes
         shell: pwsh
         env:
           TAG: ${{ github.ref_name }}
+          SIGNED: ${{ steps.sign.outputs.enabled }}
         run: |
           $version = $env:TAG.TrimStart('v')
           $changelog = Get-Content CHANGELOG.md -Raw
@@ -52,7 +94,12 @@ jobs:
           } else {
             throw "CHANGELOG.md has no '## [$version]' section."
           }
-          $notes += "`n`n### Install`nDownload **plMail Desktop_${version}_x64-setup.exe** and run it: it installs for the current user, with no administrator rights. An existing installation is updated in place, keeping its shortcuts. The installer is not code-signed, so Windows SmartScreen may warn you the first time (More info, then Run anyway).`n`nThe **portable** exe needs no installation, but does not update itself.`n"
+          if ($env:SIGNED -eq 'true') {
+            $smartscreen = "The installer and the exe are code-signed. While the certificate is new, Windows SmartScreen may still warn you the first time (More info, then Run anyway)."
+          } else {
+            $smartscreen = "The installer is not code-signed, so Windows SmartScreen may warn you the first time (More info, then Run anyway)."
+          }
+          $notes += "`n`n### Install`nDownload **plMail Desktop_${version}_x64-setup.exe** and run it: it installs for the current user, with no administrator rights. An existing installation is updated in place, keeping its shortcuts. $smartscreen`n`nThe **portable** exe needs no installation, but does not update itself.`n"
           $delimiter = "EOF_" + [guid]::NewGuid().ToString("N")
           $text = "notes<<$delimiter`n$notes`n$delimiter`n"
           [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $text, (New-Object System.Text.UTF8Encoding $false))
@@ -82,6 +129,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Read by artifact-signing-cli when code signing is set up; empty otherwise.
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: plMail Desktop ${{ github.ref_name }}
@@ -90,7 +143,17 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           # The updater reads latest.json; point it at the NSIS installer, the only bundle built.
           updaterJsonPreferNsis: true
-          args: --bundles nsis
+          args: --bundles nsis ${{ steps.sign.outputs.args }}
+
+      - name: Check the installer's signature
+        if: steps.sign.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          foreach ($file in Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            Write-Host "$($file.Name): $($signature.Status) ($($signature.SignerCertificate.Subject))"
+            if ($signature.Status -ne 'Valid') { throw "$($file.Name) is not validly signed." }
+          }
 
       - name: Attach the portable exe
         shell: pwsh
@@ -98,8 +161,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
           TAG: ${{ github.ref_name }}
+          SIGNED: ${{ steps.sign.outputs.enabled }}
+          ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
         run: |
           $version = $env:TAG.TrimStart('v')
           $name = "plMail-Desktop_${version}_x64-portable.exe"
           Copy-Item src-tauri/target/release/plmail-client.exe $name
+          # Tauri puts the unsigned binary back in target/release after bundling: sign this copy.
+          if ($env:SIGNED -eq 'true') {
+            artifact-signing-cli -e $env:ENDPOINT -d "plMail Desktop" $name
+            if ($LASTEXITCODE -ne 0) { throw "Signing the portable exe failed." }
+            $signature = Get-AuthenticodeSignature (Resolve-Path $name)
+            Write-Host "${name}: $($signature.Status)"
+            if ($signature.Status -ne 'Valid') { throw "$name is not validly signed." }
+          }
           gh api --method POST "https://uploads.github.com/repos/${{ github.repository }}/releases/$env:RELEASE_ID/assets?name=$name" -H "Content-Type: application/octet-stream" --input $name

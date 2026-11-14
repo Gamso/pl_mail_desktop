@@ -21,8 +21,10 @@ Windows, icône dans la barre système.
   Chaque notification indique le compte qui a reçu le mail, l'objet et l'expéditeur, avec des boutons
   **Répondre**, **Marquer lu** et **Supprimer** (supprimer déplace le message vers la corbeille, comme dans
   pl_mail).
-- **Pastille de non-lus** façon Thunderbird, sur l'icône de la barre des tâches (le nombre figure
-  aussi dans l'infobulle de l'icône de la barre système).
+- **Pastille de non-lus** façon Thunderbird, sur l'icône de la barre des tâches et sur celle de la
+  barre système, pour que le nombre reste visible quand la fenêtre y est rangée (il figure aussi dans
+  l'infobulle de l'icône de la barre système).
+- **La fenêtre mail retient** sa taille, sa position, son état agrandi et son zoom.
 - **Icône dans la barre système** : clic gauche pour ouvrir le mail, clic droit pour le menu
   (ouvrir, paramètres, quitter). Fermer une fenêtre ne quitte pas l'application.
 - **Barre de menus avec Alt** : un appui seul sur `Alt` affiche ou masque la barre, comme dans
@@ -35,8 +37,8 @@ Windows, icône dans la barre système.
   - *Outils* : filtres, modèles, intégrations, mots de passe d'application, réglages de plMail,
     administration (réservée aux administrateurs : un compte ordinaire reçoit le refus du
     serveur) et paramètres du client.
-  - *Aide* : raccourcis clavier et nouveautés de pl_mail, ouvrir le dossier de données, à
-    propos.
+  - *Aide* : raccourcis clavier et nouveautés de pl_mail, ouvrir le dossier de données, ouvrir
+    le dossier des journaux, à propos.
   - Le menu *Message* de Thunderbird (répondre, archiver, étiqueter…) n'existe pas ici : il agit
     sur le message sélectionné, qui vit dans la page web ; utilisez les boutons et les raccourcis
     de pl_mail.
@@ -45,7 +47,10 @@ Windows, icône dans la barre système.
 - **Quatre langues**, celles de plMail : English, Deutsch, Français et Pirate English. Par défaut
   l'application suit la langue de Windows ; elle se change dans les paramètres.
 - **Liens dans les mails** : ouverts dans votre navigateur par défaut (les liens vers votre propre
-  serveur pl_mail restent dans la fenêtre, et les liens `mailto:` ouvrent un nouveau message).
+  serveur pl_mail restent dans la fenêtre, et les liens `mailto:` ouvrent un nouveau message). La
+  fenêtre mail n'affiche jamais un autre site : une redirection ailleurs part aussi dans le
+  navigateur, sauf une connexion que pl_mail lance lui-même (ajout d'un compte Gmail ou Microsoft),
+  qui se déroule dans la fenêtre jusqu'à son retour.
 - **Fenêtres bloquantes** : paramètres, à propos et erreur verrouillent la fenêtre mail tant qu'elles
   sont ouvertes.
 - **Mises à jour** : l'application cherche une version plus récente sur GitHub au lancement (au plus
@@ -83,7 +88,7 @@ d'application. La connexion est testée avant d'être enregistrée.
 | Langue | Automatique (Windows), English, Deutsch, Français, Pirate English |
 | Fréquence de vérification | 60 s par défaut, 15 s minimum. Avec les *notifications immédiates*, ce n'est plus qu'un filet de sécurité. |
 | Signaler les nouveaux mails immédiatement quand la fenêtre est ouverte | Activé par défaut : tant que la fenêtre mail est affichée, écoute le push du serveur (JMAP EventSource) et vérifie dès qu'un mail arrive. Dans la barre système, c'est la fréquence de vérification qui s'applique. |
-| Certificat auto-signé | À n'activer que pour un serveur de confiance (réseau local) |
+| Certificat auto-signé | À n'activer que pour un serveur de confiance (réseau local). Ne s'applique qu'à ce serveur, jamais aux autres sites. |
 | Démarrer avec Windows | L'application démarre à l'ouverture de session et ouvre la fenêtre mail (elle attend le réseau jusqu'à une minute) |
 | Démarrer uniquement dans la barre système | Avec *Démarrer avec Windows* : reste dans la barre système au lieu d'ouvrir la fenêtre |
 | Gérer les liens `mailto:` | Déclare l'application à Windows comme application de messagerie (utilisateur courant uniquement) |
@@ -91,11 +96,15 @@ d'application. La connexion est testée avant d'être enregistrée.
 
 Emplacements des données :
 
-- réglages : `%APPDATA%\fr.gamso.plmailclient\settings.json`
+- réglages, taille de fenêtre et zoom : `%APPDATA%\fr.gamso.plmailclient\` (`settings.json`,
+  `.window-state.json`, `zoom.json`)
 - mot de passe : Gestionnaire d'identifiants, entrée `app-password.plmail-client`
 - session de la fenêtre mail : `%LOCALAPPDATA%\fr.gamso.plmailclient\webview-plmail`
+- journal : `%LOCALAPPDATA%\fr.gamso.plmailclient\logs\plmail-desktop.log` (*Aide → Ouvrir le
+  dossier des journaux*)
 
-Pour repartir de zéro : quitter l'application, supprimer ces trois éléments.
+Pour repartir de zéro : quitter l'application, supprimer les deux dossiers `fr.gamso.plmailclient`
+et l'entrée du Gestionnaire d'identifiants.
 
 ## Comment ça marche
 
@@ -133,7 +142,12 @@ Pour repartir de zéro : quitter l'application, supprimer ces trois éléments.
 ## Sécurité et vie privée
 
 - La fenêtre mail charge une page distante : elle n'a **aucun accès** aux commandes internes de
-  l'application.
+  l'application. Elle n'affiche que votre serveur : les autres sites s'ouvrent dans votre
+  navigateur, et les liens vers des fichiers locaux ou d'autres programmes (`file:`, `ms-msdt:`…)
+  sont refusés.
+- *Certificat auto-signé* accepte un certificat non reconnu pour l'adresse de votre serveur
+  uniquement ; tous les autres sites gardent leurs vérifications habituelles.
+- La fenêtre de paramètres tourne sous une Content-Security-Policy stricte.
 - La touche Alt est lue grâce aux événements clavier de WebView2, uniquement quand la fenêtre mail
   a le focus. Aucun crochet clavier global.
 - L'application parle à votre serveur, et à github.com pour chercher les mises à jour (désactivable
@@ -175,14 +189,16 @@ npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ### Tests et intégration continue
 
 ```powershell
-npm test            # tests Rust : traductions, client JMAP (serveur simulé), pastille
+npm test            # tests Rust : traductions, client JMAP et push (serveurs simulés), pastille, liens
 npm run typecheck   # TypeScript
+npm run lint        # lint TypeScript (Biome)
 ```
 
 GitHub Actions (`.github/workflows/`) :
 
-- `ci.yml` : à chaque push sur `main` et chaque pull request, compile le frontend, vérifie le
-  formatage (`cargo fmt`), les avertissements (`cargo clippy`) et lance les tests, sur Windows.
+- `ci.yml` : à chaque push sur `main` et chaque pull request, analyse (lint) et compile le
+  frontend, vérifie le formatage (`cargo fmt`), les avertissements (`cargo clippy`), lance les tests
+  et cherche les vulnérabilités connues des dépendances Rust (`cargo audit`), sur Windows.
 - `release.yml` : pousser un tag `vX.Y.Z` lance les tests, compile l'installeur Windows, le signe
   pour la mise à jour, et joint l'installeur, sa signature, `latest.json` et un exe portable à une
   **release en brouillon** à publier à la main. Il s'arrête tôt si le tag diffère de la version de
@@ -201,6 +217,30 @@ npm run tauri signer generate -- -w "$HOME/.tauri/plmail-desktop.key"
 
 Gardez la clé privée hors du dépôt, avec une sauvegarde : **sans elle, les copies installées ne
 peuvent plus être mises à jour**.
+
+#### Signature de code
+
+La clé de mise à jour ci-dessus permet seulement à l'application de faire confiance à ses propres
+mises à jour. Windows SmartScreen regarde une autre signature, Authenticode. `release.yml` signe
+l'installeur et l'exe portable avec [Azure Artifact Signing](https://learn.microsoft.com/azure/artifact-signing/)
+(anciennement Trusted Signing) quand c'est configuré, via le `signCommand` de Tauri et
+[`artifact-signing-cli`](https://crates.io/crates/artifact-signing-cli). Sinon, les releases sont
+compilées sans signature, comme avant.
+
+1. Créer un compte Artifact Signing, faire valider son identité et créer un profil de certificat
+   *Public Trust*. Vérifier d'abord les conditions d'éligibilité de Microsoft : la validation
+   d'identité n'est pas ouverte à tous les types de demandeurs ni à tous les pays.
+2. Enregistrer une application dans Microsoft Entra ID, lui créer un secret client, et lui donner le
+   rôle *Artifact Signing Certificate Profile Signer* sur le compte de signature.
+3. Dans les réglages du dépôt, ajouter les **secrets** `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` et
+   `AZURE_TENANT_ID`, et les **variables** `AZURE_ARTIFACT_SIGNING_ENDPOINT` (par exemple
+   `https://weu.codesigning.azure.net`), `AZURE_ARTIFACT_SIGNING_ACCOUNT` et
+   `AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE`.
+
+Le workflow signe alors les deux fichiers, vérifie les signatures et adapte la phrase sur SmartScreen
+dans les notes de la release. Un certificat neuf doit encore se bâtir une réputation auprès de
+SmartScreen : l'avertissement peut apparaître lors des premiers téléchargements après le début de la
+signature.
 
 Pour publier une version : ajouter une section dans `CHANGELOG.md`, mettre à jour la version dans
 `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` et `package.json`, fusionner, puis :
@@ -222,7 +262,11 @@ vérifie à la main.
 | `src-tauri/src/lib.rs` | Application : fenêtres, tray, menus, réglages, boucle de vérification |
 | `src-tauri/src/jmap.rs` | Client JMAP minimal |
 | `src-tauri/src/i18n.rs` | Textes côté Rust : tray, menus, notifications, erreurs |
-| `src-tauri/src/badge.rs` | Dessin de la pastille de non-lus |
+| `src-tauri/src/push.rs` | Push JMAP (EventSource) tant que la fenêtre mail est affichée |
+| `src-tauri/src/links.rs` | Destination d'un lien ou d'une navigation de la fenêtre mail |
+| `src-tauri/src/certs.rs` | Certificat auto-signé, accepté pour le serveur seulement |
+| `src-tauri/src/zoom.rs` | Zoom mémorisé de la fenêtre mail |
+| `src-tauri/src/badge.rs` | Dessin de la pastille de non-lus (barre des tâches et barre système) |
 | `src-tauri/src/altkey.rs` | Détection de la touche Alt dans la fenêtre mail |
 | `src-tauri/src/*_tests.rs` | Tests (traductions, client JMAP avec serveur simulé) |
 | `assets-src/` | Logo source |
