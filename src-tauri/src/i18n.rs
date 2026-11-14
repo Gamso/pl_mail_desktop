@@ -515,6 +515,15 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
         "toast.btn_reply" => pick(lang, ["Reply", "Antworten", "Répondre", "Answer back"]),
         "toast.btn_read" => pick(lang, ["Mark read", "Gelesen", "Marquer lu", "Mark read"]),
         "toast.btn_delete" => pick(lang, ["Delete", "Löschen", "Supprimer", "Toss it"]),
+        "toast.unauthorized" => pick(
+            lang,
+            [
+                "Click to enter a new app password.",
+                "Klicke, um ein neues App-Passwort einzugeben.",
+                "Cliquez pour saisir un nouveau mot de passe d'application.",
+                "Click to forge a new spare key.",
+            ],
+        ),
         "toast.action_failed" => pick(
             lang,
             [

@@ -4,6 +4,24 @@ All notable changes to plMail Desktop are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Notifications are grouped across accounts**: past three new messages in one check, a single
+  notification stands for all of them, whichever accounts received them.
+- **A revoked app password is reported once**, by a notification that opens the client settings,
+  and the server is then asked less and less often (up to every 30 minutes) instead of every minute.
+- Each check needs fewer requests: the unread count comes with the list of changes, and new
+  messages are fetched in batches of 50.
+
+### Fixed
+
+- **Mail that arrived while the server was unreachable was never notified**: after an error the
+  application forgot where each account stood and started over from "now". It now keeps it.
+- The unread badge could drop to 0 when the count could not be read; it keeps the last known count.
+- A server answer without a new state could make a check loop forever.
+
 ## [0.3.0] - 2026-10-27
 
 ### Added

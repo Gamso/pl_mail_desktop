@@ -15,6 +15,7 @@ const KEYS: &[&str] = &[
     "toast.test",
     "toast.unknown_sender",
     "toast.no_subject",
+    "toast.unauthorized",
     "status.none",
     "status.ok",
     "status.new",
